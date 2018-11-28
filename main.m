@@ -21,6 +21,8 @@ NumOfSpecies = nSpecies(gas);
 MW = molecularWeights(gas);
 
 mu = 1e-5;
+cp = 1.0;
+lambda = 1.0;
 
 NumOfPnt = 1001;
 zL = 0.0;
@@ -109,26 +111,37 @@ while(err > 1e-6)
     Nbla(CUR) = lin_dist(Nbla(PREV), Nbla(CUR), 0.5);
     
     % Solve T
-    coef = zeros(NumOfPnt, NumOfPnt);
-    rhs = zeros(NumOfPnt, 1);
-    for i = 1:NumOfPnt
-        local_T = T(PREV, i);
-        setTemperature(gas, local_T);
-        setMassFractions(gas, Y(PREV, :, i));
-        w = netProdRates(gas);
-        h = enthalpies_RT(gas) * local_T * gasconstant;                                                      
-        rhs(i) = -dot(w, h) ;
-    end
-    
-    
+%     coef = zeros(NumOfPnt, NumOfPnt);
+%     rhs = zeros(NumOfPnt, 1);
+%     for i = 1:NumOfPnt
+%         local_T = T(PREV, i);
+%         setTemperature(gas, local_T);
+%         setMassFractions(gas, Y(PREV, :, i));
+%         w = netProdRates(gas);
+%         h = enthalpies_RT(gas) * local_T * gasconstant;                                                      
+%         rhs(i) = -dot(w, h) ;
+%     end    
+%     coef(1, 1) = - rho(PREV, 1) * u(CUR, 1) * cp / dz - lambda / dz^2;
+%     coef(1, 2) =  rho(PREV, 1) * u(CUR, 1) * cp / dz + 2 * lambda / dz^2;
+%     coef(1, 3) = -lambda / dz^2;
+%     for i = 2 : NumOfPnt-1
+%         coef(i, i-1) = -0.5 * rho(PREV, i) * u(CUR, i) * cp / dz - lambda / dz^2;
+%         coef(i, i) = 2 * lambda / dz^2;
+%         coef(i, i+1) = 0.5 * rho(PREV, i) * u(CUR, i) * cp / dz - lambda / dz^2;
+%     end
+%     coef(NumOfPnt, NumOfPnt-2) = -lambda / dz^2;
+%     coef(NumOfPnt, NumOfPnt-1) = -rho(PREV, NumOfPnt) * u(CUR, NumOfPnt) *cp / dz + 2 * lambda / dz^2;
+%     coef(NumOfPnt, NumOfPnt) = rho(PREV, NumOfPnt) * u(CUR, NumOfPnt) * cp / dz - lambda / dz^2;    
+%     T(CUR, :) = linsolve(coef, rhs);
+        
     % Sovle Y_k
     % TODO
     
     % Update density
-    for i = 1:NumOfPnt
-        tmp = sum(Y(CUR, :, i) ./ MW);
-        rho(CUR, i) = P / (gasconstant * T(CUR, i) * tmp);
-    end
+%     for i = 1:NumOfPnt
+%         tmp = sum(Y(CUR, :, i) ./ MW);
+%         rho(CUR, i) = P / (gasconstant * T(CUR, i) * tmp);
+%     end
     
     fprintf("Iteration %d: err = %f\n", iter_cnt, err);
     PREV = 3 - PREV;
