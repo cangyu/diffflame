@@ -13,22 +13,15 @@ air = Air();
 gas = GRI30('Mix');
 setPressure(gas, P);
 
-ich4 = speciesIndex(gas, 'CH4');
-io2 = speciesIndex(gas, 'O2');
-in2 = speciesIndex(gas, 'N2');
+N = 101; % Total num of grid points
+K = nSpecies(gas); % Total num of species
 
-NumOfSpecies = nSpecies(gas);
-MW = molecularWeights(gas);
+MW = molecularWeights(gas); % Kg/Kmol
 
-mu = 1e-5;
-cp = 1.0;
-lambda = 1.0;
-
-NumOfPnt = 1001;
 zL = 0.0;
-zR = 1.0;
+zR = 0.1; %10cm
 L = zR - zL;
-z = linspace(zL, zR, NumOfPnt);
+z = linspace(zL, zR, N);
 dz = z(2)-z(1);
 
 T_L = 300.0; %K
@@ -40,26 +33,32 @@ Tcoef = polyfit([zL, zR, Tmax_pos], [T_L, T_R, Tmax],2);
 PREV = 1;
 CUR = 2;
 
-rho = zeros(2, NumOfPnt);
-u = zeros(2, NumOfPnt);
-V = zeros(2, NumOfPnt);
-T = zeros(2, NumOfPnt);
-Y = zeros(2, NumOfSpecies, NumOfPnt);
-Nbla = zeros(1, 2);
+rho = zeros(2, N); % Kg/m^3
+u = zeros(2, N); % m/s
+V = zeros(2, N);
+T = zeros(2, N); % K
+Y = zeros(2, K, N);
+Nbla = zeros(1, 2); % The eigenvalue
+
+mu = zeros(1, N); % Viscosity, Pa * s = Kg / (m * s)
+cp = zeros(1, N); % Specific heat, J / (Kg * K)
+lambda = zeros(1, N); % Thermal conductivity, W / (m * K)
+D = zeros(K, N); % Binary diffusion coefficients, m^2 / s
+
+RR = zeros(N, 1); % Chemical source term, J / (m^3 * s)
 
 %% Init
-% rho(PREV, :) = linspace(rhoL , rhoR, NumOfPnt);
-rho(PREV, :) = ones(NumOfPnt, 1) * 1.0;
+rho(PREV, :) = linspace(rhoL , rhoR, N);
+% rho(PREV, :) = ones(NumOfPnt, 1) * 1.0;
 rho(CUR, :) = rho(PREV, :);
-u(PREV, :) = linspace(uL, uR, NumOfPnt);
+u(PREV, :) = linspace(uL, uR, N);
 Nbla(PREV) = -0.1;
-Y(PREV, ich4, :) = linspace(1.0, 0.0, NumOfPnt);
-Y(PREV, io2, :) = linspace(0.0, massFraction(air, 'O2'), NumOfPnt);
-Y(PREV, in2, :) = linspace(0.0, massFraction(air, 'N2'), NumOfPnt);
-V(PREV, :) = df(rho(PREV, :) .* u(PREV, :), dz, NumOfPnt);
-for i = 1:NumOfPnt
+Y(PREV, speciesIndex(gas, 'CH4'), :) = linspace(1.0, 0.0, N);
+Y(PREV, speciesIndex(gas, 'O2'), :) = linspace(0.0, massFraction(air, 'O2'), N);
+Y(PREV, speciesIndex(gas, 'N2'), :) = linspace(0.0, massFraction(air, 'N2'), N);
+V(PREV, :) = -df(rho(PREV, :) .* u(PREV, :), dz, N) ./ (2 * rho(PREV, :));
+for i = 1:N
     T(PREV, i) = polyval(Tcoef, z(i));
-    V(PREV, i) = -0.5 * V(PREV, i) / rho(PREV, i);
 end
 T(CUR, :) = T(PREV, :);
 % plot(z, T(PREV, :))
@@ -70,78 +69,125 @@ err = 1.0;
 iter_cnt = 0;
 while(err > 1e-6)
     iter_cnt = iter_cnt + 1;
-    %Solve V
-    coef = zeros(NumOfPnt, NumOfPnt);
-    coef(1, 1) = - rho(PREV, 1) * u(PREV, 1) / dz - mu / dz^2 + rho(PREV, 1) * V(PREV, 1);
-    coef(1, 2) =  rho(PREV, 1) * u(PREV, 1) / dz + 2 * mu / dz^2;
-    coef(1, 3) = -mu / dz^2;
-    for i = 2 : NumOfPnt-1
-        coef(i, i-1) = -0.5 * rho(PREV, i) * u(PREV, i) / dz - mu / dz^2;
-        coef(i, i) = rho(PREV, i) * V(PREV, i) + 2 * mu / dz^2;
-        coef(i, i+1) = 0.5 * rho(PREV, i) * u(PREV, i) / dz - mu / dz^2;
-    end
-    coef(NumOfPnt, NumOfPnt-2) = -mu / dz^2;
-    coef(NumOfPnt, NumOfPnt-1) = -rho(PREV, NumOfPnt) * u(PREV, NumOfPnt) / dz + 2 * mu / dz^2;
-    coef(NumOfPnt, NumOfPnt) = rho(PREV, NumOfPnt) * u(PREV, NumOfPnt) / dz - mu / dz^2 + rho(PREV, NumOfPnt) * V(PREV, NumOfPnt);
-    V(CUR, :) = linsolve(coef, -Nbla(PREV)*ones(NumOfPnt, 1));
     
-    % Solve u
+    %====================Calc physical properties=====================
+    for i = 1:N
+        local_T = T(PREV, i);
+        
+        setTemperature(gas, local_T);
+        setMassFractions(gas, Y(PREV, :, i));
+        
+        mu(i) = viscosity(gas);
+        lambda(i) = thermalConductivity(gas);
+        cp(i) = cp_mass(gas);
+        D(:, i) = mixDiffCoeffs(gas);
+        
+        w = netProdRates(gas); % kmol / (m^3 * s)
+        h = enthalpies_RT(gas) * local_T * gasconstant; % J/Kmol                                              
+        RR(i) = dot(w, h); % J / (m^3 * s)
+    end
+    
+    %==============================Solve V============================
+    coef = zeros(N, N);
+    coef(1, 1) = - rho(PREV, 1) * u(PREV, 1) / dz - mu(1) / dz^2 + rho(PREV, 1) * V(PREV, 1);
+    coef(1, 2) =  rho(PREV, 1) * u(PREV, 1) / dz + 2 * mu(1) / dz^2;
+    coef(1, 3) = -mu(1) / dz^2;
+    for i = 2 : N-1
+        coef(i, i-1) = -0.5 * rho(PREV, i) * u(PREV, i) / dz - mu(i) / dz^2;
+        coef(i, i) = rho(PREV, i) * V(PREV, i) + 2 * mu(i) / dz^2;
+        coef(i, i+1) = 0.5 * rho(PREV, i) * u(PREV, i) / dz - mu(i) / dz^2;
+    end
+    coef(N, N-2) = -mu(N) / dz^2;
+    coef(N, N-1) = -rho(PREV, N) * u(PREV, N) / dz + 2 * mu(N) / dz^2;
+    coef(N, N) = rho(PREV, N) * u(PREV, N) / dz - mu(N) / dz^2 + rho(PREV, N) * V(PREV, N);
+    
+    rhs = -Nbla(PREV)*ones(N, 1);
+    
+    V(CUR, :) = linsolve(coef, rhs);
+    
+    %==============================Solve u============================
     u(CUR, 1) = u(PREV, 1);
-    for i = 2 : NumOfPnt - 1
+    for i = 2 : N - 1
         u(CUR, i) = (-2 * rho(PREV, i) * V(CUR, i) * dz + rho(PREV, i-1) * u(PREV, i-1)) / rho(PREV, i);
     end
-    u(CUR, NumOfPnt) = u(PREV, NumOfPnt);
+    u(CUR, N) = u(PREV, N);
     
-    % Correct V
+    %=============================Correct V===========================
     flux = 0.0;
     flux = flux - 2 * rho(PREV, 1) * V(CUR, 1) * (dz/2);
-    for i = 2 : NumOfPnt-1
+    for i = 2 : N-1
         flux = flux - 2 * rho(PREV, i) * V(CUR, i) * dz;
     end
-    flux = flux - 2 * rho(PREV, NumOfPnt) * V(CUR, NumOfPnt) * (dz/2);
+    flux = flux - 2 * rho(PREV, N) * V(CUR, N) * (dz/2);
     gain_factor = flux / (mdot_R - mdot_L) ;
     V(CUR, :) = V(CUR, :) / gain_factor;
     
-    % Correct Nbla
-    lhs1 = dot(rho(PREV, :) .* u(CUR, :), df(V(CUR, :), dz, NumOfPnt));
+    %===========================Correct Nbla==========================
+    dVdz = df(V(CUR, :), dz, N);
+    ddVddz = ddf(V(CUR, :), dz, N);
+    
+    lhs1 = dot(rho(PREV, :) .* u(CUR, :), dVdz);
     lhs2 = dot(rho(PREV, :) .* V(CUR, :), V(CUR, :));
-    rhs2 = mu * sum(ddf(V(CUR, :), dz, NumOfPnt));
-    Nbla(CUR) = (rhs2 - lhs1 - lhs2) / NumOfPnt;
+    rhs2 = dot(mu, ddVddz);
+    
+    Nbla(CUR) = (rhs2 - lhs1 - lhs2) / N;
     err = abs(Nbla(CUR) - Nbla(PREV));
     Nbla(CUR) = lin_dist(Nbla(PREV), Nbla(CUR), 0.5);
     
-    % Solve T
-%     coef = zeros(NumOfPnt, NumOfPnt);
-%     rhs = zeros(NumOfPnt, 1);
-%     for i = 1:NumOfPnt
-%         local_T = T(PREV, i);
-%         setTemperature(gas, local_T);
-%         setMassFractions(gas, Y(PREV, :, i));
-%         w = netProdRates(gas);
-%         h = enthalpies_RT(gas) * local_T * gasconstant;                                                      
-%         rhs(i) = -dot(w, h) ;
-%     end    
-%     coef(1, 1) = - rho(PREV, 1) * u(CUR, 1) * cp / dz - lambda / dz^2;
-%     coef(1, 2) =  rho(PREV, 1) * u(CUR, 1) * cp / dz + 2 * lambda / dz^2;
-%     coef(1, 3) = -lambda / dz^2;
-%     for i = 2 : NumOfPnt-1
-%         coef(i, i-1) = -0.5 * rho(PREV, i) * u(CUR, i) * cp / dz - lambda / dz^2;
-%         coef(i, i) = 2 * lambda / dz^2;
-%         coef(i, i+1) = 0.5 * rho(PREV, i) * u(CUR, i) * cp / dz - lambda / dz^2;
-%     end
-%     coef(NumOfPnt, NumOfPnt-2) = -lambda / dz^2;
-%     coef(NumOfPnt, NumOfPnt-1) = -rho(PREV, NumOfPnt) * u(CUR, NumOfPnt) *cp / dz + 2 * lambda / dz^2;
-%     coef(NumOfPnt, NumOfPnt) = rho(PREV, NumOfPnt) * u(CUR, NumOfPnt) * cp / dz - lambda / dz^2;    
-%     T(CUR, :) = linsolve(coef, rhs);
-        
-    % Sovle Y_k
-    % TODO
+    %=============================Solve T============================
+    coef = zeros(N, N);
+    coef(1, 1) = - rho(PREV, 1) * u(CUR, 1) * cp(1) / dz - lambda(1) / dz^2;
+    coef(1, 2) = rho(PREV, 1) * u(CUR, 1) * cp(1) / dz + 2 * lambda(1) / dz^2;
+    coef(1, 3) = -lambda(1) / dz^2;
+    for i = 2 : N-1
+        coef(i, i-1) = -0.5 * rho(PREV, i) * u(CUR, i) * cp(i) / dz - lambda(i) / dz^2;
+        coef(i, i) = 2 * lambda(i) / dz^2;
+        coef(i, i+1) = 0.5 * rho(PREV, i) * u(CUR, i) * cp(i) / dz - lambda(i) / dz^2;
+    end
+    coef(N, N-2) = -lambda(N) / dz^2;
+    coef(N, N-1) = -rho(PREV, N) * u(CUR, N) * cp(N) / dz + 2 * lambda(N) / dz^2;
+    coef(N, N) = rho(PREV, N) * u(CUR, N) * cp(N) / dz - lambda(N) / dz^2;    
     
-    % Update density
-%     for i = 1:NumOfPnt
-%         tmp = sum(Y(CUR, :, i) ./ MW);
-%         rho(CUR, i) = P / (gasconstant * T(CUR, i) * tmp);
-%     end
+    T(CUR, :) = linsolve(coef, -RR);
+        
+    %=============================Sovle Yk=============================
+    ydot = zeros(K, N);
+    for i = 1:N
+        local_T = T(CUR, i);
+        setTemperature(gas, local_T);
+        setMassFractions(gas, Y(PREV, :, i));
+        ydot(:, i) = netProdRates(gas) .* MW;
+    end
+    
+    for k=1:K
+        coef = zeros(N, N);
+        coef(1, 1) = -rho(PREV, 1) * u(CUR, 1) / dz + rho(PREV, 1) * D(k, 1) / dz^2;
+        coef(1, 2) = rho(PREV, 1) * u(CUR, 1) / dz - 2 * rho(PREV, 1)* D(k, 1) /dz^2;
+        coef(1, 3) = rho(PREV, 1) * D(k, 1) / dz^2;
+        for i = 2 : N-1
+            coef(i, i-1) = -rho(PREV, i) * u(CUR, i) / (2*dz) + rho(PREV, i) * D(k, i) / dz^2;
+            coef(i, i) = -2 * rho(PREV, i) * D(k, i) / dz^2;
+            coef(i, i+1) = rho(PREV, i) * u(CUR, i) / (2*dz) + rho(PREV,i) * D(k, i) / dz^2;
+        end
+        coef(N, N-2) = rho(PREV, N) * D(k, N) / dz^2;
+        coef(N, N-1) = -rho(PREV, N) * u(CUR, N) / dz - 2 * rho(PREV, N) * D(k, N) / dz^2;
+        coef(N, N) = rho(PREV, N) * u(CUR, N) / dz + rho(PREV, N) * D(k, N) / dz^2;
+        
+        rhs = transpose(ydot(k, :));
+        
+        Y(CUR,k, :) = linsolve(coef, rhs);
+    end
+    
+    %===========================Update density==========================
+    rho(CUR, 1) = rho(PREV, 1);
+    for i = 2:N-1
+        tmp = 0.0;
+        for k = 1:K
+            tmp = tmp + Y(CUR, k, i) / MW(k);
+        end
+        rho(CUR, i) = P / (gasconstant * T(CUR, i) * tmp);
+    end
+    rho(CUR, N) = rho(PREV, N);
     
     fprintf("Iteration %d: err = %f\n", iter_cnt, err);
     PREV = 3 - PREV;
