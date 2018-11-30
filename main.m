@@ -13,13 +13,13 @@ air = Air();
 gas = GRI30('Mix');
 setPressure(gas, P);
 
-N = 101; % Total num of grid points
+N = 10001; % Total num of grid points
 K = nSpecies(gas); % Total num of species
 
 MW = molecularWeights(gas); % Kg/Kmol
 
 zL = 0.0;
-zR = 0.1; %10cm
+zR = 0.1; % m
 L = zR - zL;
 z = linspace(zL, zR, N);
 dz = z(2)-z(1);
@@ -49,14 +49,19 @@ RR = zeros(N, 1); % Chemical source term, J / (m^3 * s)
 
 %% Init
 rho(PREV, :) = linspace(rhoL , rhoR, N);
-% rho(PREV, :) = ones(NumOfPnt, 1) * 1.0;
 rho(CUR, :) = rho(PREV, :);
+
 u(PREV, :) = linspace(uL, uR, N);
+u(CUR, :) = u(PREV, :);
+
 Nbla(PREV) = -0.1;
+
 Y(PREV, speciesIndex(gas, 'CH4'), :) = linspace(1.0, 0.0, N);
 Y(PREV, speciesIndex(gas, 'O2'), :) = linspace(0.0, massFraction(air, 'O2'), N);
 Y(PREV, speciesIndex(gas, 'N2'), :) = linspace(0.0, massFraction(air, 'N2'), N);
+
 V(PREV, :) = -df(rho(PREV, :) .* u(PREV, :), dz, N) ./ (2 * rho(PREV, :));
+
 for i = 1:N
     T(PREV, i) = polyval(Tcoef, z(i));
 end
@@ -78,7 +83,7 @@ while(err > 1e-6)
         setMassFractions(gas, Y(PREV, :, i));
         
         mu(i) = viscosity(gas);
-        lambda(i) = thermalConductivity(gas);
+        lambda(i) = -thermalConductivity(gas);
         cp(i) = cp_mass(gas);
         D(:, i) = mixDiffCoeffs(gas);
         
@@ -87,23 +92,26 @@ while(err > 1e-6)
         RR(i) = dot(w, h); % J / (m^3 * s)
     end
     
+    %plot(z, RR);
+    
     %==============================Solve V============================
     coef = zeros(N, N);
-    coef(1, 1) = - rho(PREV, 1) * u(PREV, 1) / dz - mu(1) / dz^2 + rho(PREV, 1) * V(PREV, 1);
-    coef(1, 2) =  rho(PREV, 1) * u(PREV, 1) / dz + 2 * mu(1) / dz^2;
-    coef(1, 3) = -mu(1) / dz^2;
     for i = 2 : N-1
         coef(i, i-1) = -0.5 * rho(PREV, i) * u(PREV, i) / dz - mu(i) / dz^2;
         coef(i, i) = rho(PREV, i) * V(PREV, i) + 2 * mu(i) / dz^2;
         coef(i, i+1) = 0.5 * rho(PREV, i) * u(PREV, i) / dz - mu(i) / dz^2;
     end
-    coef(N, N-2) = -mu(N) / dz^2;
-    coef(N, N-1) = -rho(PREV, N) * u(PREV, N) / dz + 2 * mu(N) / dz^2;
-    coef(N, N) = rho(PREV, N) * u(PREV, N) / dz - mu(N) / dz^2 + rho(PREV, N) * V(PREV, N);
-    
     rhs = -Nbla(PREV)*ones(N, 1);
     
-    V(CUR, :) = linsolve(coef, rhs);
+    A = coef(2:N-1, 2:N-1);
+    b = rhs(2:N-1);
+    b(1) = b(1) - coef(2, 1) * V(PREV, 1);
+    b(N-2) = b(N-2) - coef(N-1, N) * V(PREV, N);
+    x = linsolve(A, b);
+    
+    V(CUR, 1) = V(PREV, 1);
+    V(CUR, 2:N-1) = x;
+    V(CUR, N) = V(PREV, N);
     
     %==============================Solve u============================
     u(CUR, 1) = u(PREV, 1);
@@ -136,20 +144,22 @@ while(err > 1e-6)
     
     %=============================Solve T============================
     coef = zeros(N, N);
-    coef(1, 1) = - rho(PREV, 1) * u(CUR, 1) * cp(1) / dz - lambda(1) / dz^2;
-    coef(1, 2) = rho(PREV, 1) * u(CUR, 1) * cp(1) / dz + 2 * lambda(1) / dz^2;
-    coef(1, 3) = -lambda(1) / dz^2;
     for i = 2 : N-1
         coef(i, i-1) = -0.5 * rho(PREV, i) * u(CUR, i) * cp(i) / dz - lambda(i) / dz^2;
         coef(i, i) = 2 * lambda(i) / dz^2;
         coef(i, i+1) = 0.5 * rho(PREV, i) * u(CUR, i) * cp(i) / dz - lambda(i) / dz^2;
     end
-    coef(N, N-2) = -lambda(N) / dz^2;
-    coef(N, N-1) = -rho(PREV, N) * u(CUR, N) * cp(N) / dz + 2 * lambda(N) / dz^2;
-    coef(N, N) = rho(PREV, N) * u(CUR, N) * cp(N) / dz - lambda(N) / dz^2;    
     
-    T(CUR, :) = linsolve(coef, -RR);
-        
+    A = coef(2:N-1, 2:N-1);
+    b = -RR(2:N-1);
+    b(1) = b(1) - coef(2, 1) * T(PREV, 1);
+    b(N-2) = b(N-2) - coef(N-1, N) * T(PREV, N);
+    x = linsolve(A, b);
+    
+    T(CUR, 1) = T(PREV, 1);
+    T(CUR, 2:N-1) = x;
+    T(CUR, N) = T(PREV, N);
+    
     %=============================Sovle Yk=============================
     ydot = zeros(K, N);
     for i = 1:N
