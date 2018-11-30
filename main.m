@@ -1,8 +1,8 @@
 clear all; close all; clc;
 
 P = oneatm;
-mdot_L = 1.0; %Fuel stream, Kg/s
-mdot_R = -16.6; %Air stream, Kg/s
+mdot_L = 1.0 / 100 ; %Fuel stream, Kg/s
+mdot_R = -16.6 / 100; %Air stream, Kg/s
 rhoL = 0.716; %Density of CH4, Kg/m^3
 rhoR = 1.3947; %Density of Air, Kg/m^3
 uL = mdot_L / rhoL;
@@ -13,20 +13,20 @@ air = Air();
 gas = GRI30('Mix');
 setPressure(gas, P);
 
-N = 10001; % Total num of grid points
+N = 1001; % Total num of grid points
 K = nSpecies(gas); % Total num of species
 
 MW = molecularWeights(gas); % Kg/Kmol
 
 zL = 0.0;
-zR = 0.1; % m
+zR = 0.1 / 10; % m
 L = zR - zL;
 z = linspace(zL, zR, N);
 dz = z(2)-z(1);
 
 T_L = 300.0; %K
 T_R = 300.0; %K
-Tmax = 2000.0; %K
+Tmax = 1950.0; %K
 Tmax_pos = lin_dist(zL, zR, 0.5);
 Tcoef = polyfit([zL, zR, Tmax_pos], [T_L, T_R, Tmax],2);
 
@@ -72,7 +72,7 @@ T(CUR, :) = T(PREV, :);
 %% Loop
 err = 1.0;
 iter_cnt = 0;
-while(err > 1e-6)
+while(err > 1e-3)
     iter_cnt = iter_cnt + 1;
     
     %====================Calc physical properties=====================
@@ -83,16 +83,16 @@ while(err > 1e-6)
         setMassFractions(gas, Y(PREV, :, i));
         
         mu(i) = viscosity(gas);
-        lambda(i) = -thermalConductivity(gas);
+        lambda(i) = thermalConductivity(gas);
         cp(i) = cp_mass(gas);
-        D(:, i) = mixDiffCoeffs(gas);
+        D(:, i) = -mixDiffCoeffs(gas);
         
         w = netProdRates(gas); % kmol / (m^3 * s)
         h = enthalpies_RT(gas) * local_T * gasconstant; % J/Kmol                                              
         RR(i) = dot(w, h); % J / (m^3 * s)
     end
     
-    %plot(z, RR);
+    plot(z, RR);
     
     %==============================Solve V============================
     coef = zeros(N, N);
@@ -132,17 +132,16 @@ while(err > 1e-6)
     
     %===========================Correct Nbla==========================
     dVdz = df(V(CUR, :), dz, N);
-    ddVddz = ddf(V(CUR, :), dz, N);
     
     lhs1 = dot(rho(PREV, :) .* u(CUR, :), dVdz);
     lhs2 = dot(rho(PREV, :) .* V(CUR, :), V(CUR, :));
-    rhs2 = dot(mu, ddVddz);
+    rhs2 = sum(df(mu .* dVdz, dz, N));
     
     Nbla(CUR) = (rhs2 - lhs1 - lhs2) / N;
     err = abs(Nbla(CUR) - Nbla(PREV));
-    Nbla(CUR) = lin_dist(Nbla(PREV), Nbla(CUR), 0.5);
+    Nbla(CUR) = lin_dist(Nbla(PREV), Nbla(CUR), 0.1);
     
-    %=============================Solve T============================
+    %=============================Solve T============================   
     coef = zeros(N, N);
     for i = 2 : N-1
         coef(i, i-1) = -0.5 * rho(PREV, i) * u(CUR, i) * cp(i) / dz - lambda(i) / dz^2;
@@ -151,7 +150,7 @@ while(err > 1e-6)
     end
     
     A = coef(2:N-1, 2:N-1);
-    b = -RR(2:N-1);
+    b = RR(2:N-1);
     b(1) = b(1) - coef(2, 1) * T(PREV, 1);
     b(N-2) = b(N-2) - coef(N-1, N) * T(PREV, N);
     x = linsolve(A, b);
@@ -159,6 +158,12 @@ while(err > 1e-6)
     T(CUR, 1) = T(PREV, 1);
     T(CUR, 2:N-1) = x;
     T(CUR, N) = T(PREV, N);
+    
+    for i = 1:N
+        T(CUR, i) = max(300, T(CUR, i));
+    end
+    
+    plot(z, T(CUR, :))
     
     %=============================Sovle Yk=============================
     ydot = zeros(K, N);
@@ -171,21 +176,22 @@ while(err > 1e-6)
     
     for k=1:K
         coef = zeros(N, N);
-        coef(1, 1) = -rho(PREV, 1) * u(CUR, 1) / dz + rho(PREV, 1) * D(k, 1) / dz^2;
-        coef(1, 2) = rho(PREV, 1) * u(CUR, 1) / dz - 2 * rho(PREV, 1)* D(k, 1) /dz^2;
-        coef(1, 3) = rho(PREV, 1) * D(k, 1) / dz^2;
         for i = 2 : N-1
             coef(i, i-1) = -rho(PREV, i) * u(CUR, i) / (2*dz) + rho(PREV, i) * D(k, i) / dz^2;
             coef(i, i) = -2 * rho(PREV, i) * D(k, i) / dz^2;
             coef(i, i+1) = rho(PREV, i) * u(CUR, i) / (2*dz) + rho(PREV,i) * D(k, i) / dz^2;
         end
-        coef(N, N-2) = rho(PREV, N) * D(k, N) / dz^2;
-        coef(N, N-1) = -rho(PREV, N) * u(CUR, N) / dz - 2 * rho(PREV, N) * D(k, N) / dz^2;
-        coef(N, N) = rho(PREV, N) * u(CUR, N) / dz + rho(PREV, N) * D(k, N) / dz^2;
-        
         rhs = transpose(ydot(k, :));
         
-        Y(CUR,k, :) = linsolve(coef, rhs);
+		A = coef(2:N-1, 2:N-1);
+		b = rhs(2:N-1);
+		b(1) = b(1) - coef(2, 1) * Y(PREV, k, 1);
+		b(N-2) = b(N-2) - coef(N-1, N) * Y(PREV, k, N);
+		x = linsolve(A, b);
+		
+		Y(CUR, k, 1) = Y(PREV, k, 1);
+        Y(CUR, k, 2:N-1) = x;
+		Y(CUR, k, N) = Y(PREV, k, N);
     end
     
     %===========================Update density==========================
