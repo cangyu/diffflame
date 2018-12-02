@@ -16,7 +16,7 @@ setPressure(gas, P);
 N = 1001; % Total num of grid points
 K = nSpecies(gas); % Total num of species
 
-MW = molecularWeights(gas); % Kg/Kmol
+MW = molecularWeights(gas); % Kg / Kmol
 
 zL = 0.0;
 zR = 0.1 / 10; % m
@@ -24,16 +24,14 @@ L = zR - zL;
 z = linspace(zL, zR, N);
 dz = z(2)-z(1);
 
-T_L = 300.0; %K
-T_R = 300.0; %K
-Tmax = 1950.0; %K
+Tmin = 300.0; % K
+Tmax = 1950.0; % K
 Tmax_pos = lin_dist(zL, zR, 0.5);
-Tcoef = polyfit([zL, zR, Tmax_pos], [T_L, T_R, Tmax],2);
 
 PREV = 1;
 CUR = 2;
 
-rho = zeros(2, N); % Kg/m^3
+rho = zeros(2, N); % Kg / m^3
 u = zeros(2, N); % m/s
 V = zeros(2, N);
 T = zeros(2, N); % K
@@ -45,7 +43,8 @@ cp = zeros(1, N); % Specific heat, J / (Kg * K)
 lambda = zeros(1, N); % Thermal conductivity, W / (m * K)
 D = zeros(K, N); % Binary diffusion coefficients, m^2 / s
 
-RR = zeros(N, 1); % Chemical source term, J / (m^3 * s)
+RS = zeros(N, 1); % Chemical reaction source term, J / (m^3 * s)
+RR = zeros(K, N); % Chemical reaction rate, Kg / (m^3 * s)
 
 %% Init
 rho(PREV, :) = linspace(rhoL , rhoR, N);
@@ -63,17 +62,20 @@ Y(PREV, speciesIndex(gas, 'N2'), :) = linspace(0.0, massFraction(air, 'N2'), N);
 V(PREV, :) = -df(rho(PREV, :) .* u(PREV, :), dz, N) ./ (2 * rho(PREV, :));
 
 for i = 1:N
-    T(PREV, i) = polyval(Tcoef, z(i));
+    if abs(z(i) - Tmax_pos) < 0.1 * L
+        T(PREV, i) = Tmax;
+    else
+        T(PREV, i) = Tmin;
+    end
 end
 T(CUR, :) = T(PREV, :);
-% plot(z, T(PREV, :))
-% plot(z, squeeze(Y(PREV, in2, :)))
 
 %% Loop
 err = 1.0;
 iter_cnt = 0;
 while(err > 1e-3)
     iter_cnt = iter_cnt + 1;
+    fprintf("Iteration %d:\n", iter_cnt);
     
     %====================Calc physical properties=====================
     for i = 1:N
@@ -85,15 +87,61 @@ while(err > 1e-3)
         mu(i) = viscosity(gas);
         lambda(i) = thermalConductivity(gas);
         cp(i) = cp_mass(gas);
-        D(:, i) = -mixDiffCoeffs(gas);
+        D(:, i) = mixDiffCoeffs(gas);      
         
         w = netProdRates(gas); % kmol / (m^3 * s)
         h = enthalpies_RT(gas) * local_T * gasconstant; % J/Kmol                                              
-        RR(i) = dot(w, h); % J / (m^3 * s)
+       
+        RS(i) = dot(w, h); % J / (m^3 * s)
+        RR(:, i) = w.* MW; % Kg / (m^3 * s)
     end
     
-    plot(z, RR);
+    %===========================Diagnose==============================
+    subplot(3, 4, 1)
+    plot(z, T(PREV, :))
+    xlabel('z / m')
+    ylabel('Temperature / K')
     
+    subplot(3, 4, 2)
+    plot(z, rho(PREV, :))
+    xlabel('z / m')
+    ylabel('Density / Kg\cdotm^{-3}')
+    
+    subplot(3, 4, 3)
+    plot(z, RS);
+    xlabel('z / m')
+    ylabel('Reaction Source Term / J\cdotm^{-3}\cdots^{-1}')
+      
+    subplot(3, 4, 5)
+    plot(z, squeeze(Y(PREV, speciesIndex(gas, 'CH4'), :)))
+    xlabel('z / m')
+    ylabel('Y_{CH4}')
+    
+    subplot(3, 4, 9)
+    plot(z, squeeze(RR(speciesIndex(gas, 'CH4'), :)))
+    xlabel('z / m')
+    ylabel(' Reaction Rate of CH4 / Kg\cdotm^{-3}\cdots^{-1}')
+    
+    subplot(3, 4, 6)
+    plot(z, squeeze(Y(PREV, speciesIndex(gas, 'O2'), :)))
+    xlabel('z / m')
+    ylabel('Y_{O2}')
+    
+    subplot(3, 4, 10)
+    plot(z, squeeze(RR(speciesIndex(gas, 'O2'), :)))
+    xlabel('z / m')
+    ylabel(' Reaction Rate of O2 / Kg\cdotm^{-3}\cdots^{-1}')
+    
+    subplot(3, 4, 7)
+    plot(z, squeeze(Y(PREV, speciesIndex(gas, 'CO2'), :)))
+    xlabel('z / m')
+    ylabel('Y_{CO2}')
+    
+    subplot(3, 4, 11)
+    plot(z, squeeze(RR(speciesIndex(gas, 'CO2'), :)))
+    xlabel('z / m')
+    ylabel(' Reaction Rate of CO2 / Kg\cdotm^{-3}\cdots^{-1}')
+        
     %==============================Solve V============================
     coef = zeros(N, N);
     for i = 2 : N-1
@@ -139,6 +187,7 @@ while(err > 1e-3)
     
     Nbla(CUR) = (rhs2 - lhs1 - lhs2) / N;
     err = abs(Nbla(CUR) - Nbla(PREV));
+    fprintf("\terr = %f\n", err);
     Nbla(CUR) = lin_dist(Nbla(PREV), Nbla(CUR), 0.1);
     
     %=============================Solve T============================   
@@ -150,7 +199,7 @@ while(err > 1e-3)
     end
     
     A = coef(2:N-1, 2:N-1);
-    b = RR(2:N-1);
+    b = RS(2:N-1);
     b(1) = b(1) - coef(2, 1) * T(PREV, 1);
     b(N-2) = b(N-2) - coef(N-1, N) * T(PREV, N);
     x = linsolve(A, b);
@@ -162,26 +211,16 @@ while(err > 1e-3)
     for i = 1:N
         T(CUR, i) = max(300, T(CUR, i));
     end
-    
-    plot(z, T(CUR, :))
-    
+        
     %=============================Sovle Yk=============================
-    ydot = zeros(K, N);
-    for i = 1:N
-        local_T = T(CUR, i);
-        setTemperature(gas, local_T);
-        setMassFractions(gas, Y(PREV, :, i));
-        ydot(:, i) = netProdRates(gas) .* MW;
-    end
-    
     for k=1:K
         coef = zeros(N, N);
         for i = 2 : N-1
-            coef(i, i-1) = -rho(PREV, i) * u(CUR, i) / (2*dz) + rho(PREV, i) * D(k, i) / dz^2;
-            coef(i, i) = -2 * rho(PREV, i) * D(k, i) / dz^2;
-            coef(i, i+1) = rho(PREV, i) * u(CUR, i) / (2*dz) + rho(PREV,i) * D(k, i) / dz^2;
+            coef(i, i-1) = -rho(PREV, i) * u(CUR, i) / (2*dz) - rho(PREV, i) * D(k, i) / dz^2;
+            coef(i, i) = 2 * rho(PREV, i) * D(k, i) / dz^2;
+            coef(i, i+1) = rho(PREV, i) * u(CUR, i) / (2*dz) - rho(PREV,i) * D(k, i) / dz^2;
         end
-        rhs = transpose(ydot(k, :));
+        rhs = transpose(RR(k, :));
         
 		A = coef(2:N-1, 2:N-1);
 		b = rhs(2:N-1);
@@ -192,6 +231,15 @@ while(err > 1e-3)
 		Y(CUR, k, 1) = Y(PREV, k, 1);
         Y(CUR, k, 2:N-1) = x;
 		Y(CUR, k, N) = Y(PREV, k, N);
+        
+        for i = 2 : N-1
+            Y(CUR, k, i) = max(Y(CUR, k, i), 0.0);
+        end
+    end
+    
+    for i = 2 : N-1
+        tmp = sum(Y(CUR, :, i));
+        Y(CUR, :, i) = Y(CUR, :, i) / tmp;
     end
     
     %===========================Update density==========================
@@ -204,8 +252,8 @@ while(err > 1e-3)
         rho(CUR, i) = P / (gasconstant * T(CUR, i) * tmp);
     end
     rho(CUR, N) = rho(PREV, N);
-    
-    fprintf("Iteration %d: err = %f\n", iter_cnt, err);
+      
+	%===========================Swap Index==============================
     PREV = 3 - PREV;
     CUR = 3 - CUR;
 end
