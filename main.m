@@ -1,10 +1,10 @@
 clear all; close all; clc;
 
-P = oneatm;
-mdot_L = 1.0 / 100 ; %Fuel stream, Kg/s
-mdot_R = -16.6 / 100; %Air stream, Kg/s
-rhoL = 0.716; %Density of CH4, Kg/m^3
-rhoR = 1.3947; %Density of Air, Kg/m^3
+P = oneatm; % Pa
+mdot_L = 1.0 / 100 ; % Fuel stream, Kg/s
+mdot_R = -16.6 / 100; % Air stream, Kg/s
+rhoL = 0.716; % Density of CH4, Kg/m^3
+rhoR = 1.3947; % Density of Air, Kg/m^3
 uL = mdot_L / rhoL;
 uR = mdot_R / rhoR;
 
@@ -17,6 +17,7 @@ N = 1001; % Total num of grid points
 K = nSpecies(gas); % Total num of species
 
 MW = molecularWeights(gas); % Kg / Kmol
+NAME = speciesNames(gas);
 
 zL = 0.0;
 zR = 0.1 / 10; % m
@@ -25,8 +26,8 @@ z = linspace(zL, zR, N);
 dz = z(2)-z(1);
 
 Tmin = 300.0; % K
-Tmax = 1950.0; % K
-Tmax_pos = lin_dist(zL, zR, 0.5);
+Tmax = 1500.0; % K
+Tmax_pos = relaxation(zL, zR, 0.5);
 
 PREV = 1;
 CUR = 2;
@@ -81,8 +82,7 @@ while(err > 1e-3)
     for i = 1:N
         local_T = T(PREV, i);
         
-        setTemperature(gas, local_T);
-        setMassFractions(gas, Y(PREV, :, i));
+        set(gas, 'T', local_T, 'P', P, 'Y', squeeze(Y(PREV, :, i)));
         
         mu(i) = viscosity(gas);
         lambda(i) = thermalConductivity(gas);
@@ -92,55 +92,90 @@ while(err > 1e-3)
         w = netProdRates(gas); % kmol / (m^3 * s)
         h = enthalpies_RT(gas) * local_T * gasconstant; % J/Kmol                                              
        
-        RS(i) = dot(w, h); % J / (m^3 * s)
+        RS(i) = -dot(w, h); % J / (m^3 * s)
         RR(:, i) = w.* MW; % Kg / (m^3 * s)
+        
+%         if(i == int32(N/2))
+%             fprintf('Position: %d, Local T: %f K\n', i, local_T);
+%             fprintf('%16s%24s%32s%32s%40s\n', 'Species', 'Y', 'Enthalpy(J * Kmol^-1)', 'RR(kmol * m^-3 * s^-1)', 'h*wdot(J * m^-3 * s^-1)');
+%             st = zeros(K, 1);
+%             for k = 1:K
+%                 st(k) = h(k)*w(k);
+%                 fprintf('%16s%24.6f%32.6e%32.6e%40.6e\n', NAME{1,k}, Y(PREV, k, i), h(k), w(k), st(k));
+%             end
+%             fprintf('Local Energy Source(J * m^-3 * s^-1): %16.6e\n', -sum(st));
+%         end        
+
     end
     
     %===========================Diagnose==============================
     subplot(3, 4, 1)
     plot(z, T(PREV, :))
+    title('$$T$$','Interpreter','latex');
     xlabel('z / m')
-    ylabel('Temperature / K')
+    ylabel('K')
     
     subplot(3, 4, 2)
     plot(z, rho(PREV, :))
-    xlabel('z / m')
-    ylabel('Density / Kg\cdotm^{-3}')
+    title('$$\rho$$','Interpreter','latex');
+    xlabel('z / m');
+    ylabel('Kg\cdotm^{-3}');
     
     subplot(3, 4, 3)
+    plot(z, u(PREV, :) );
+    title('$$u$$','Interpreter','latex')
+    xlabel('z / m');
+    ylabel('m/s');
+    
+    subplot(3, 4, 4)
     plot(z, RS);
-    xlabel('z / m')
-    ylabel('Reaction Source Term / J\cdotm^{-3}\cdots^{-1}')
+    title('$$-\sum{h_k\dot{\omega}_k}$$','Interpreter','latex')
+    xlabel('z / m');
+    ylabel('J\cdotm^{-3}\cdots^{-1}');
       
     subplot(3, 4, 5)
     plot(z, squeeze(Y(PREV, speciesIndex(gas, 'CH4'), :)))
-    xlabel('z / m')
-    ylabel('Y_{CH4}')
+    title('Y_{CH4}');
+    xlabel('z / m');
     
     subplot(3, 4, 9)
     plot(z, squeeze(RR(speciesIndex(gas, 'CH4'), :)))
+    title('$$\dot{\omega}_{CH_4}$$','Interpreter','latex');
     xlabel('z / m')
-    ylabel(' Reaction Rate of CH4 / Kg\cdotm^{-3}\cdots^{-1}')
+    ylabel('Kg\cdotm^{-3}\cdots^{-1}')
     
     subplot(3, 4, 6)
     plot(z, squeeze(Y(PREV, speciesIndex(gas, 'O2'), :)))
-    xlabel('z / m')
-    ylabel('Y_{O2}')
+    title('Y_{O2}');
+    xlabel('z / m');
     
     subplot(3, 4, 10)
     plot(z, squeeze(RR(speciesIndex(gas, 'O2'), :)))
+    title('$$\dot{\omega}_{O_2}$$','Interpreter','latex');
     xlabel('z / m')
-    ylabel(' Reaction Rate of O2 / Kg\cdotm^{-3}\cdots^{-1}')
+    ylabel('Kg\cdotm^{-3}\cdots^{-1}')
     
     subplot(3, 4, 7)
     plot(z, squeeze(Y(PREV, speciesIndex(gas, 'CO2'), :)))
+    title('Y_{CO2}')
     xlabel('z / m')
-    ylabel('Y_{CO2}')
     
     subplot(3, 4, 11)
     plot(z, squeeze(RR(speciesIndex(gas, 'CO2'), :)))
+    title('$$\dot{\omega}_{CO_2}$$','Interpreter','latex');
     xlabel('z / m')
-    ylabel(' Reaction Rate of CO2 / Kg\cdotm^{-3}\cdots^{-1}')
+    ylabel('Kg\cdotm^{-3}\cdots^{-1}')
+    
+    subplot(3, 4, 8)
+    plot(z, squeeze(Y(PREV, speciesIndex(gas, 'H2O'), :)))
+    title('Y_{H2O}')
+    xlabel('z / m')
+    
+    subplot(3, 4, 12)
+    plot(z, squeeze(RR(speciesIndex(gas, 'H2O'), :)))
+    title('$$\dot{\omega}_{H_2O}$$','Interpreter','latex');
+    xlabel('z / m')
+    ylabel('Kg\cdotm^{-3}\cdots^{-1}')
         
     %==============================Solve V============================
     coef = zeros(N, N);
@@ -188,7 +223,7 @@ while(err > 1e-3)
     Nbla(CUR) = (rhs2 - lhs1 - lhs2) / N;
     err = abs(Nbla(CUR) - Nbla(PREV));
     fprintf("\terr = %f\n", err);
-    Nbla(CUR) = lin_dist(Nbla(PREV), Nbla(CUR), 0.1);
+    Nbla(CUR) = relaxation(Nbla(PREV), Nbla(CUR), 0.5);
     
     %=============================Solve T============================   
     coef = zeros(N, N);
@@ -245,11 +280,7 @@ while(err > 1e-3)
     %===========================Update density==========================
     rho(CUR, 1) = rho(PREV, 1);
     for i = 2:N-1
-        tmp = 0.0;
-        for k = 1:K
-            tmp = tmp + Y(CUR, k, i) / MW(k);
-        end
-        rho(CUR, i) = P / (gasconstant * T(CUR, i) * tmp);
+        rho(CUR, i) = P / (gasconstant * T(CUR, i) * sum(squeeze(Y(CUR, :, i)) ./ MW'));
     end
     rho(CUR, N) = rho(PREV, N);
       
@@ -283,6 +314,6 @@ function ret = ddf(f, dx, N)
     ret = ret / dx^2;
 end
 
-function ret = lin_dist(a, b, alpha)
+function ret = relaxation(a, b, alpha)
     ret = (1-alpha) * a + alpha * b;
 end
