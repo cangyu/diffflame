@@ -78,7 +78,7 @@ while(err > 1e-3)
     iter_cnt = iter_cnt + 1;
     fprintf("Iteration %d:\n", iter_cnt);
     
-    %====================Calc physical properties=====================
+    %% Calc physical properties
     for i = 1:N
         local_T = T(PREV, i);
         
@@ -108,7 +108,7 @@ while(err > 1e-3)
 
     end
     
-    %===========================Diagnose==============================
+    %% Plot
     subplot(3, 4, 1)
     plot(z, T(PREV, :))
     title('$$T$$','Interpreter','latex');
@@ -176,8 +176,11 @@ while(err > 1e-3)
     title('$$\dot{\omega}_{H_2O}$$','Interpreter','latex');
     xlabel('z / m')
     ylabel('Kg\cdotm^{-3}\cdots^{-1}')
-        
-    %==============================Solve V============================
+    
+    fpic = sprintf('Iteration_%d.fig', iter_cnt);
+    savefig(fpic);
+    
+    %% Solve V
     coef = zeros(N, N);
     for i = 2 : N-1
         coef(i, i-1) = -0.5 * rho(PREV, i) * u(PREV, i) / dz - mu(i) / dz^2;
@@ -196,14 +199,14 @@ while(err > 1e-3)
     V(CUR, 2:N-1) = x;
     V(CUR, N) = V(PREV, N);
     
-    %==============================Solve u============================
+    %% Solve u
     u(CUR, 1) = u(PREV, 1);
     for i = 2 : N - 1
         u(CUR, i) = (-2 * rho(PREV, i) * V(CUR, i) * dz + rho(PREV, i-1) * u(PREV, i-1)) / rho(PREV, i);
     end
     u(CUR, N) = u(PREV, N);
     
-    %=============================Correct V===========================
+    %% Correct V
     flux = 0.0;
     flux = flux - 2 * rho(PREV, 1) * V(CUR, 1) * (dz/2);
     for i = 2 : N-1
@@ -213,7 +216,7 @@ while(err > 1e-3)
     gain_factor = flux / (mdot_R - mdot_L) ;
     V(CUR, :) = V(CUR, :) / gain_factor;
     
-    %===========================Correct Nbla==========================
+    %% Correct Nbla
     dVdz = df(V(CUR, :), dz, N);
     
     lhs1 = dot(rho(PREV, :) .* u(CUR, :), dVdz);
@@ -225,66 +228,108 @@ while(err > 1e-3)
     fprintf("\terr = %f\n", err);
     Nbla(CUR) = relaxation(Nbla(PREV), Nbla(CUR), 0.5);
     
-    %=============================Solve T============================   
-    coef = zeros(N, N);
-    for i = 2 : N-1
-        coef(i, i-1) = -0.5 * rho(PREV, i) * u(CUR, i) * cp(i) / dz - lambda(i) / dz^2;
-        coef(i, i) = 2 * lambda(i) / dz^2;
-        coef(i, i+1) = 0.5 * rho(PREV, i) * u(CUR, i) * cp(i) / dz - lambda(i) / dz^2;
-    end
-    
-    A = coef(2:N-1, 2:N-1);
-    b = RS(2:N-1);
-    b(1) = b(1) - coef(2, 1) * T(PREV, 1);
-    b(N-2) = b(N-2) - coef(N-1, N) * T(PREV, N);
-    x = linsolve(A, b);
-    
-    T(CUR, 1) = T(PREV, 1);
-    T(CUR, 2:N-1) = x;
-    T(CUR, N) = T(PREV, N);
-    
-    for i = 1:N
-        T(CUR, i) = max(300, T(CUR, i));
-    end
-        
-    %=============================Sovle Yk=============================
-    for k=1:K
+    %% Solve T
+    fprintf('\tSolving T equations...\n');
+    errT = 1000.0;
+    temp_iter_cnt = 0;
+    %Operator splitting
+    while(errT > 10.0)
+        temp_iter_cnt = temp_iter_cnt + 1;
+        %TODO: Choose proper time step
+        dt = 1e-6;
+        %Construct the coefficient matrix
         coef = zeros(N, N);
         for i = 2 : N-1
-            coef(i, i-1) = -rho(PREV, i) * u(CUR, i) / (2*dz) - rho(PREV, i) * D(k, i) / dz^2;
-            coef(i, i) = 2 * rho(PREV, i) * D(k, i) / dz^2;
-            coef(i, i+1) = rho(PREV, i) * u(CUR, i) / (2*dz) - rho(PREV,i) * D(k, i) / dz^2;
+            coef(i, i-1) = -dt/dz*(rho(PREV, i)*cp(i)*u(CUR, i)/2 + lambda(i)/dz);
+            coef(i, i) = rho(PREV, i)*cp(i) + 2*lambda(i)*dt/dz^2;
+            coef(i, i+1) = dt/dz*(rho(PREV, i)*cp(i)*u(CUR, i)/2 - lambda(i)/dz);
         end
-        rhs = transpose(RR(k, :));
-        
-		A = coef(2:N-1, 2:N-1);
-		b = rhs(2:N-1);
-		b(1) = b(1) - coef(2, 1) * Y(PREV, k, 1);
-		b(N-2) = b(N-2) - coef(N-1, N) * Y(PREV, k, N);
-		x = linsolve(A, b);
-		
-		Y(CUR, k, 1) = Y(PREV, k, 1);
-        Y(CUR, k, 2:N-1) = x;
-		Y(CUR, k, N) = Y(PREV, k, N);
-        
+        A = coef(2:N-1, 2:N-1);
+        %Construct the RHS
+        rhs = zeros(N, 1);
         for i = 2 : N-1
-            Y(CUR, k, i) = max(Y(CUR, k, i), 0.0);
+            local_T = T(PREV, i);
+            set(gas, 'T', local_T, 'P', P, 'Y', squeeze(Y(PREV, :, i)));
+            w = netProdRates(gas); % kmol / (m^3 * s)
+            h = enthalpies_RT(gas) * local_T * gasconstant; % J/Kmol
+            rhs(i) = rho(PREV, i)*cp(i)*T(PREV, i)-dt*dot(h, w);
+        end
+        b = rhs(2:N-1);
+        b(1) = b(1) - coef(2, 1) * T(PREV, 1);
+        b(N-2) = b(N-2) - coef(N-1, N) * T(PREV, N);
+        %Solve
+        x = linsolve(A, b);
+        errT = max(abs(squeeze(T(PREV, 2:N-1))' - x));
+        T(PREV, 2:N-1) = x;
+    end
+    %Update
+    fprintf('\t\tConverges after %d iterations!\n', temp_iter_cnt);
+    for i = 1:N
+        T(CUR, i) = max(300, T(PREV, i));
+    end
+    
+    %% Sovle Y
+    fprintf('\tSolving Y equations...\n');
+    
+    %Update diffusion coefficients and RR
+    for i = 1:N
+        local_T = T(CUR, i);
+        set(gas, 'T', local_T, 'P', P, 'Y', squeeze(Y(PREV, :, i)));
+        D(:, i) = mixDiffCoeffs(gas);    
+        w = netProdRates(gas); % kmol / (m^3 * s)
+        RR(:, i) = w .* MW; % Kg / (m^3 * s)
+    end
+    
+    %Solve each species
+    for k=1:K
+        errY = 1.0;
+        y_iter_cnt = 0;
+        %Operator splitting
+        while(errY > 1e-4)
+            y_iter_cnt = y_iter_cnt + 1;
+            %TODO: Choose proper time step
+            dt = 1e-6;
+            %Construct the coefficient matrix
+            coef = zeros(N, N);
+            for i = 2 : N-1
+                coef(i, i-1) = -dt/dz*rho(PREV, i)*(u(CUR, i)/2+D(k, i)/dz);
+                coef(i, i) = rho(PREV, i)*(1+2*D(k, i)*dt/dz^2);
+                coef(i, i+1) = dt/dz*rho(PREV, i)*(u(CUR, i)/2-D(k, i)/dz);
+            end
+            A = coef(2:N-1, 2:N-1);
+            %Construct the RHS
+            rhs = zeros(N, 1);
+            for i = 2 : N-1
+                rhs(i) = rho(PREV, i)*Y(PREV, k, i)+dt*RR(k, i);
+            end
+            b = rhs(2:N-1);
+            b(1) = b(1) - coef(2, 1) * Y(PREV, k, 1);
+            b(N-2) = b(N-2) - coef(N-1, N) * Y(PREV, k, N);
+            %Solve
+            x = linsolve(A, b);
+            errY = max(abs(squeeze(Y(PREV, k, 2:N-1)) - x));
+            Y(PREV, k, 2:N-1) = x;
+        end
+        %Update
+        fprintf('\t\t%s converges after %d iterations!\n', NAME{1, k}, y_iter_cnt);
+        for i = 1 : N
+            Y(CUR, k, i) = max(Y(PREV, k, i), 0.0);
         end
     end
     
+    %Normalization
     for i = 2 : N-1
-        tmp = sum(Y(CUR, :, i));
-        Y(CUR, :, i) = Y(CUR, :, i) / tmp;
+        Y(CUR, :, i) = Y(CUR, :, i) / sum(Y(CUR, :, i));
     end
     
-    %===========================Update density==========================
+    %% Update density
     rho(CUR, 1) = rho(PREV, 1);
     for i = 2:N-1
         rho(CUR, i) = P / (gasconstant * T(CUR, i) * sum(squeeze(Y(CUR, :, i)) ./ MW'));
     end
     rho(CUR, N) = rho(PREV, N);
       
-	%===========================Swap Index==============================
+	%% Swap Index
     PREV = 3 - PREV;
     CUR = 3 - CUR;
 end
