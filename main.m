@@ -1,26 +1,27 @@
 clear all; close all; clc;
 
 P = oneatm; % Pa
-mdot_L = 1.0 / 100 ; % Fuel stream, Kg/s
-mdot_R = -16.6 / 100; % Air stream, Kg/s
+mdot_L = 1.0/100 ; % Fuel stream, Kg/s
+mdot_R = -3.0/100; % Air stream, Kg/s
 rhoL = 0.716; % Density of CH4, Kg/m^3
 rhoR = 1.3947; % Density of Air, Kg/m^3
-uL = mdot_L / rhoL;
-uR = mdot_R / rhoR;
+S = 1.0; %Cross area, m^2
+uL = mdot_L / rhoL / S; %Velocity at left entrance, m/s 
+uR = mdot_R / rhoR / S; %Velocity at right entrance, m/s
 
 fuel = Methane();
 air = Air();
 gas = GRI30('Mix');
 setPressure(gas, P);
 
-N = 1001; % Total num of grid points
+N = 5001; % Total num of grid points
 K = nSpecies(gas); % Total num of species
 
-MW = molecularWeights(gas); % Kg / Kmol
+MW = molecularWeights(gas); % Kg/Kmol
 NAME = speciesNames(gas);
 
 zL = 0.0;
-zR = 0.1 / 10; % m
+zR = 0.05; % m
 L = zR - zL;
 z = linspace(zL, zR, N);
 dz = z(2)-z(1);
@@ -46,6 +47,10 @@ D = zeros(K, N); % Binary diffusion coefficients, m^2 / s
 
 RS = zeros(N, 1); % Chemical reaction source term, J / (m^3 * s)
 RR = zeros(K, N); % Chemical reaction rate, Kg / (m^3 * s)
+
+CFL = 0.8;
+max_dT = 0.5;
+max_dY = 1e-4 * ones(K, 1);
 
 %% Init
 rho(PREV, :) = linspace(rhoL , rhoR, N);
@@ -193,8 +198,8 @@ while(err > 1e-3)
     b = rhs(2:N-1);
     b(1) = b(1) - coef(2, 1) * V(PREV, 1);
     b(N-2) = b(N-2) - coef(N-1, N) * V(PREV, N);
-    x = linsolve(A, b);
-    
+    %x = linsolve(A, b);
+    x = solveTriDiagMat(A, b);
     V(CUR, 1) = V(PREV, 1);
     V(CUR, 2:N-1) = x;
     V(CUR, N) = V(PREV, N);
@@ -228,15 +233,44 @@ while(err > 1e-3)
     fprintf("\terr = %f\n", err);
     Nbla(CUR) = relaxation(Nbla(PREV), Nbla(CUR), 0.5);
     
+    %% CFL condition
+    dt_cfl = CFL * dz / max(abs(u(CUR, :)) + 1e-20);
+    fprintf('\tTime step given by CFL condition: %e s\n', dt_cfl);
+    
     %% Solve T
-    fprintf('\tSolving T equations...\n');
+    fprintf('\tSolving T equation ...\n');
     errT = 1000.0;
     temp_iter_cnt = 0;
-    %Operator splitting
-    while(errT > 10.0)
+    
+    while(errT > 5.0)
         temp_iter_cnt = temp_iter_cnt + 1;
-        %TODO: Choose proper time step
-        dt = 1e-6;
+        
+        %Compute energy source term
+        for i = 2 : N-1
+            local_T = T(PREV, i);
+            set(gas, 'T', local_T, 'P', P, 'Y', squeeze(Y(PREV, :, i)));
+            w = netProdRates(gas); % kmol / (m^3 * s)
+            h = enthalpies_RT(gas) * local_T * gasconstant; % J/Kmol
+            RS(i) = -dot(w, h); % J / (m^3 * s)
+        end
+        
+        %Choose proper time step
+        %according to max allowable change of T due to energy source term
+        dt = dt_cfl;
+        for i = 2:N-1
+            dt = min(dt,  abs(rho(PREV, i)*cp(i))*max_dT/abs(RS(i) + 1e-20));
+        end
+        fprintf('\t\tTime step: %e s, ', dt);
+        
+        %Construct the RHS
+        rhs = zeros(N, 1);
+        for i = 2 : N-1
+            rhs(i) = rho(PREV, i)*cp(i)*T(PREV, i)+dt*RS(i);
+        end
+        b = rhs(2:N-1);
+        b(1) = b(1) - coef(2, 1) * T(PREV, 1);
+        b(N-2) = b(N-2) - coef(N-1, N) * T(PREV, N);
+        
         %Construct the coefficient matrix
         coef = zeros(N, N);
         for i = 2 : N-1
@@ -245,31 +279,31 @@ while(err > 1e-3)
             coef(i, i+1) = dt/dz*(rho(PREV, i)*cp(i)*u(CUR, i)/2 - lambda(i)/dz);
         end
         A = coef(2:N-1, 2:N-1);
-        %Construct the RHS
-        rhs = zeros(N, 1);
-        for i = 2 : N-1
-            local_T = T(PREV, i);
-            set(gas, 'T', local_T, 'P', P, 'Y', squeeze(Y(PREV, :, i)));
-            w = netProdRates(gas); % kmol / (m^3 * s)
-            h = enthalpies_RT(gas) * local_T * gasconstant; % J/Kmol
-            rhs(i) = rho(PREV, i)*cp(i)*T(PREV, i)-dt*dot(h, w);
-        end
-        b = rhs(2:N-1);
-        b(1) = b(1) - coef(2, 1) * T(PREV, 1);
-        b(N-2) = b(N-2) - coef(N-1, N) * T(PREV, N);
+        
         %Solve
-        x = linsolve(A, b);
+        %x = linsolve(A, b);
+        x = solveTriDiagMat(A, b);
+        
+        %Check constraint: no less than 300, no greater than 3000
+        for i = 2:N-1
+            idx = i - 1;
+            x(idx) = min(max(300, x(idx)), 3000);
+        end
+        
+        %Calc error
         errT = max(abs(squeeze(T(PREV, 2:N-1))' - x));
-        T(PREV, 2:N-1) = x;
-    end
-    %Update
-    fprintf('\t\tConverges after %d iterations!\n', temp_iter_cnt);
-    for i = 1:N
-        T(CUR, i) = max(300, T(PREV, i));
+        fprintf('errT: %e K\n', errT);
+        
+        %Next round
+         T(PREV, 2:N-1) = x(:); 
     end
     
+    %Update
+    fprintf('\t\tConverges after %d iterations!\n', temp_iter_cnt);
+    T(CUR, :) = T(PREV, :);
+    
     %% Sovle Y
-    fprintf('\tSolving Y equations...\n');
+    fprintf('\tSolving Y equations ...\n');
     
     %Update diffusion coefficients and RR
     for i = 1:N
@@ -284,11 +318,20 @@ while(err > 1e-3)
     for k=1:K
         errY = 1.0;
         y_iter_cnt = 0;
-        %Operator splitting
-        while(errY > 1e-4)
+        fprintf('\t\t%s:\n', NAME{1, k});
+        
+        cond2 = true;
+        while(errY > 1e-4 && cond2)
             y_iter_cnt = y_iter_cnt + 1;
-            %TODO: Choose proper time step
-            dt = 1e-6;
+            
+            %Choose proper time step
+            %according to the max allowable change of Y_k
+            dt = dt_cfl;
+            for i = 2:N-1
+                dt = min(dt, rho(PREV, i) * max_dY(k) / (abs(RR(k, i))+1e-20));
+            end
+            fprintf('\t\t\tTime step: %e s, ', dt);
+            
             %Construct the coefficient matrix
             coef = zeros(N, N);
             for i = 2 : N-1
@@ -297,6 +340,7 @@ while(err > 1e-3)
                 coef(i, i+1) = dt/dz*rho(PREV, i)*(u(CUR, i)/2-D(k, i)/dz);
             end
             A = coef(2:N-1, 2:N-1);
+            
             %Construct the RHS
             rhs = zeros(N, 1);
             for i = 2 : N-1
@@ -305,16 +349,39 @@ while(err > 1e-3)
             b = rhs(2:N-1);
             b(1) = b(1) - coef(2, 1) * Y(PREV, k, 1);
             b(N-2) = b(N-2) - coef(N-1, N) * Y(PREV, k, N);
+            
             %Solve
-            x = linsolve(A, b);
+            %x = linsolve(A, b);
+            x = solveTriDiagMat(A, b);
+            
+            %Check constraints: no less than 0, no greater than 1.0
+            for i = 2:N-1
+                idx = i-1;
+                x(idx) = max(0.0, min(1.0, x(idx)));
+            end
+            
+            %Calc error
             errY = max(abs(squeeze(Y(PREV, k, 2:N-1)) - x));
-            Y(PREV, k, 2:N-1) = x;
+            fprintf('errY: %e\n', errY);
+            
+            rate_ratio = zeros(N-2, 1);
+            for i = 2:N-1
+                idx = i-1;
+                dYdt = (x(idx)-Y(PREV, k, i))/dt;
+                tl = abs(rho(PREV, i)*dYdt);
+                tr = abs(RR(k, i)) + 1e-20;
+                rate_ratio(idx) = tl/tr;
+            end
+            cond2 = max(rate_ratio) > 1e-3;
+            
+            %Next round
+            Y(PREV, k, 2:N-1) = x(:);
+            
         end
+        
         %Update
-        fprintf('\t\t%s converges after %d iterations!\n', NAME{1, k}, y_iter_cnt);
-        for i = 1 : N
-            Y(CUR, k, i) = max(Y(PREV, k, i), 0.0);
-        end
+        fprintf('\t\t\tConverges after %d iterations!\n', y_iter_cnt);
+        Y(CUR, k, :) = Y(PREV, k, :);
     end
     
     %Normalization
@@ -361,4 +428,10 @@ end
 
 function ret = relaxation(a, b, alpha)
     ret = (1-alpha) * a + alpha * b;
+end
+
+function x = solveTriDiagMat(B, b)
+    [n, ~] = size(B);
+    A = spdiags(spdiags(B, -1:1), -1:1, n, n);
+    x = A\b;
 end
