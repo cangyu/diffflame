@@ -2,7 +2,7 @@ clear all; close all; clc;
 
 P = oneatm; % Pa
 mdot_L = 1.0/100 ; % Fuel stream, Kg/s
-mdot_R = -3.0/100; % Air stream, Kg/s
+mdot_R = -16.6/100; % Air stream, Kg/s
 rhoL = 0.716; % Density of CH4, Kg/m^3
 rhoR = 1.3947; % Density of Air, Kg/m^3
 S = 1.0; %Cross area, m^2
@@ -229,15 +229,15 @@ while(err > 1e-3)
     
     Nbla(CUR) = (rhs2 - lhs1 - lhs2) / N;
     err = abs(Nbla(CUR) - Nbla(PREV));
-    fprintf("\terr = %f\n", err);
+    fprintf("    err = %f\n", err);
     Nbla(CUR) = relaxation(Nbla(PREV), Nbla(CUR), 0.5);
     
     %% CFL condition
     dt_cfl = CFL * dz / max(abs(u(CUR, :)) + 1e-20);
-    fprintf('\tTime step given by CFL condition: %e s\n', dt_cfl);
+    fprintf('    Time step given by CFL condition: %e s\n', dt_cfl);
     
     %% Solve T
-    fprintf('\tSolving T equation ...\n');
+    fprintf('    Solving T equation ...\n');
     errT = 1000.0;
     temp_iter_cnt = 0;
     
@@ -259,7 +259,7 @@ while(err > 1e-3)
         for i = 2:N-1
             dt = min(dt,  abs(rho(PREV, i)*cp(i))*max_dT/abs(RS(i) + 1e-20));
         end
-        fprintf('\t\tTime step: %e s, ', dt);
+        fprintf('        Time step: %e s, ', dt);
         
         %Construct the RHS
         rhs = zeros(N, 1);
@@ -297,11 +297,11 @@ while(err > 1e-3)
     end
     
     %Update
-    fprintf('\t\tConverges after %d iterations!\n', temp_iter_cnt);
+    fprintf('        Converges after %d iterations!\n', temp_iter_cnt);
     T(CUR, :) = T(PREV, :);
     
     %% Sovle Y
-    fprintf('\tSolving Y equations ...\n');
+    fprintf('    Solving Y equations ...\n');
     
     %Update diffusion coefficients and RR
     for i = 1:N
@@ -316,7 +316,7 @@ while(err > 1e-3)
     for k=1:K
         errY = 1.0;
         y_iter_cnt = 0;
-        fprintf('\t\t%s:\n', NAME{1, k});
+        fprintf('      %s:\n', NAME{1, k});
         
         cond2 = true;
         while(errY > 1e-4 && cond2)
@@ -328,7 +328,7 @@ while(err > 1e-3)
             for i = 2:N-1
                 dt = min(dt, rho(PREV, i) * max_dY(k) / (abs(RR(k, i))+1e-20));
             end
-            fprintf('\t\t\tTime step: %e s, ', dt);
+            fprintf('        Time step: %e s, ', dt);
             
             %Construct the coefficient matrix
             coef = zeros(N, N);
@@ -376,7 +376,7 @@ while(err > 1e-3)
         end
         
         %Update
-        fprintf('\t\t\tConverges after %d iterations!\n', y_iter_cnt);
+        fprintf('        Converges after %d iterations!\n', y_iter_cnt);
         Y(CUR, k, :) = Y(PREV, k, :);
     end
     
