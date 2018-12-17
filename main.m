@@ -52,7 +52,7 @@ CFL = 0.8;
 max_dT = 0.5;
 max_dY = 1e-4 * ones(K, 1);
 
-%% Init
+%=============================Init========================================
 rho(PREV, :) = linspace(rhoL , rhoR, N);
 rho(CUR, :) = rho(PREV, :);
 
@@ -76,7 +76,7 @@ for i = 1:N
 end
 T(CUR, :) = T(PREV, :);
 
-%% Loop
+%==================================Loop=================================
 err = 1.0;
 iter_cnt = 0;
 while(err > 1e-3)
@@ -198,7 +198,6 @@ while(err > 1e-3)
     b = rhs(2:N-1);
     b(1) = b(1) - coef(2, 1) * V(PREV, 1);
     b(N-2) = b(N-2) - coef(N-1, N) * V(PREV, N);
-    %x = linsolve(A, b);
     x = solveTriDiagMat(A, b);
     V(CUR, 1) = V(PREV, 1);
     V(CUR, 2:N-1) = x;
@@ -281,7 +280,6 @@ while(err > 1e-3)
         A = coef(2:N-1, 2:N-1);
         
         %Solve
-        %x = linsolve(A, b);
         x = solveTriDiagMat(A, b);
         
         %Check constraint: no less than 300, no greater than 3000
@@ -351,7 +349,6 @@ while(err > 1e-3)
             b(N-2) = b(N-2) - coef(N-1, N) * Y(PREV, k, N);
             
             %Solve
-            %x = linsolve(A, b);
             x = solveTriDiagMat(A, b);
             
             %Check constraints: no less than 0, no greater than 1.0
@@ -376,7 +373,6 @@ while(err > 1e-3)
             
             %Next round
             Y(PREV, k, 2:N-1) = x(:);
-            
         end
         
         %Update
@@ -395,13 +391,13 @@ while(err > 1e-3)
         rho(CUR, i) = P / (gasconstant * T(CUR, i) * sum(squeeze(Y(CUR, :, i)) ./ MW'));
     end
     rho(CUR, N) = rho(PREV, N);
-      
-	%% Swap Index
+    
+    %% Swap Index
     PREV = 3 - PREV;
     CUR = 3 - CUR;
 end
 
-%% Helpers
+%=================================Helpers================================
 function ret = df(f, dx, N)
     ret = zeros(1, N);
     
