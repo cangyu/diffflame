@@ -77,8 +77,10 @@ end
 T(CUR, :) = T(PREV, :);
 
 %==================================Loop=================================
+fprintf('Main program running ...\n');
 err = 1.0;
 iter_cnt = 0;
+
 while(err > 1e-3)
     iter_cnt = iter_cnt + 1;
     fprintf("Iteration %d:\n", iter_cnt);
@@ -99,18 +101,6 @@ while(err > 1e-3)
        
         RS(i) = -dot(w, h); % J / (m^3 * s)
         RR(:, i) = w.* MW; % Kg / (m^3 * s)
-        
-%         if(i == int32(N/2))
-%             fprintf('Position: %d, Local T: %f K\n', i, local_T);
-%             fprintf('%16s%24s%32s%32s%40s\n', 'Species', 'Y', 'Enthalpy(J * Kmol^-1)', 'RR(kmol * m^-3 * s^-1)', 'h*wdot(J * m^-3 * s^-1)');
-%             st = zeros(K, 1);
-%             for k = 1:K
-%                 st(k) = h(k)*w(k);
-%                 fprintf('%16s%24.6f%32.6e%32.6e%40.6e\n', NAME{1,k}, Y(PREV, k, i), h(k), w(k), st(k));
-%             end
-%             fprintf('Local Energy Source(J * m^-3 * s^-1): %16.6e\n', -sum(st));
-%         end        
-
     end
     
     %% Plot
@@ -294,6 +284,8 @@ while(err > 1e-3)
         
         %Next round
          T(PREV, 2:N-1) = x(:); 
+         T(PREV, 2) = relaxation(T(PREV, 1), T(PREV, 3), 0.5);
+         T(PREV, N-1) = relaxation(T(PREV, N-2), T(PREV, N), 0.5);
     end
     
     %Update
@@ -373,6 +365,8 @@ while(err > 1e-3)
             
             %Next round
             Y(PREV, k, 2:N-1) = x(:);
+            Y(PREV, k, 2) = relaxation(Y(PREV, k, 1), Y(PREV, k, 3), 0.5);
+            Y(PREV, k, N-1) = relaxation(Y(PREV, k, N-2), Y(PREV, k, N), 0.5);
         end
         
         %Update
@@ -396,7 +390,7 @@ while(err > 1e-3)
     PREV = 3 - PREV;
     CUR = 3 - CUR;
 end
-
+fprintf('Main program converges after %d iterations!\n', iter_cnt);
 %=================================Helpers================================
 function ret = df(f, dx, N)
     ret = zeros(1, N);
