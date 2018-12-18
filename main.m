@@ -174,7 +174,7 @@ while(err > 1e-4)
     xlabel('z / m')
     ylabel('Kg\cdotm^{-3}\cdots^{-1}')
     
-    fpic = sprintf('Iteration_%d.png', iter_cnt);
+    fpic = sprintf('pic/Iteration_%d.png', iter_cnt);
     saveas(h, fpic);
     
     %% Solve V

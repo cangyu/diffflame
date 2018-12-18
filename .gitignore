@@ -1,2 +1,4 @@
-*.fig
-*.png
+pic/*.fig
+
+pic/*.png
+pic/*.gif
