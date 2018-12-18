@@ -14,14 +14,14 @@ air = Air();
 gas = GRI30('Mix');
 setPressure(gas, P);
 
-N = 5001; % Total num of grid points
+N = 2001; % Total num of grid points
 K = nSpecies(gas); % Total num of species
 
 MW = molecularWeights(gas); % Kg/Kmol
 NAME = speciesNames(gas);
 
 zL = 0.0;
-zR = 0.05; % m
+zR = 0.02; % m
 L = zR - zL;
 z = linspace(zL, zR, N);
 dz = z(2)-z(1);
@@ -68,7 +68,7 @@ Y(PREV, speciesIndex(gas, 'N2'), :) = linspace(0.0, massFraction(air, 'N2'), N);
 V(PREV, :) = -df(rho(PREV, :) .* u(PREV, :), dz, N) ./ (2 * rho(PREV, :));
 
 for i = 1:N
-    if abs(z(i) - Tmax_pos) < 0.1 * L
+    if abs(z(i) - Tmax_pos) < 0.15 * L
         T(PREV, i) = Tmax;
     else
         T(PREV, i) = Tmin;
@@ -81,7 +81,7 @@ fprintf('Main program running ...\n');
 err = 1.0;
 iter_cnt = 0;
 
-while(err > 1e-3)
+while(err > 1e-4)
     iter_cnt = iter_cnt + 1;
     fprintf("Iteration %d:\n", iter_cnt);
     
@@ -104,6 +104,8 @@ while(err > 1e-3)
     end
     
     %% Plot
+    h = figure(1);
+    set(h, 'position', get(0,'ScreenSize'));
     subplot(3, 4, 1)
     plot(z, T(PREV, :))
     title('$$T$$','Interpreter','latex');
@@ -172,8 +174,8 @@ while(err > 1e-3)
     xlabel('z / m')
     ylabel('Kg\cdotm^{-3}\cdots^{-1}')
     
-    fpic = sprintf('Iteration_%d.fig', iter_cnt);
-    savefig(fpic);
+    fpic = sprintf('Iteration_%d.png', iter_cnt);
+    saveas(h, fpic);
     
     %% Solve V
     coef = zeros(N, N);
@@ -231,7 +233,7 @@ while(err > 1e-3)
     errT = 1000.0;
     temp_iter_cnt = 0;
     
-    while(errT > 5.0)
+    while(errT > 2.0)
         temp_iter_cnt = temp_iter_cnt + 1;
         
         %Compute energy source term
@@ -272,15 +274,15 @@ while(err > 1e-3)
         %Solve
         x = solveTriDiagMat(A, b);
         
+        %Calc error
+        errT = max(abs(squeeze(T(PREV, 2:N-1))' - x));
+        fprintf('errT: %e K\n', errT);
+        
         %Check constraint: no less than 300, no greater than 3000
         for i = 2:N-1
             idx = i - 1;
             x(idx) = min(max(300, x(idx)), 3000);
         end
-        
-        %Calc error
-        errT = max(abs(squeeze(T(PREV, 2:N-1))' - x));
-        fprintf('errT: %e K\n', errT);
         
         %Next round
          T(PREV, 2:N-1) = x(:); 
@@ -306,12 +308,12 @@ while(err > 1e-3)
     
     %Solve each species
     for k=1:K
-        errY = 1.0;
-        y_iter_cnt = 0;
         fprintf('      %s:\n', NAME{1, k});
+        errY = 1.0;
+        max_ratio = 1.0;
+        y_iter_cnt = 0;
         
-        cond2 = true;
-        while(errY > 1e-4 && cond2)
+        while(errY > 1e-4 && max_ratio > 1e-3)
             y_iter_cnt = y_iter_cnt + 1;
             
             %Choose proper time step
@@ -343,12 +345,6 @@ while(err > 1e-3)
             %Solve
             x = solveTriDiagMat(A, b);
             
-            %Check constraints: no less than 0, no greater than 1.0
-            for i = 2:N-1
-                idx = i-1;
-                x(idx) = max(0.0, min(1.0, x(idx)));
-            end
-            
             %Calc error
             errY = max(abs(squeeze(Y(PREV, k, 2:N-1)) - x));
             fprintf('errY: %e\n', errY);
@@ -361,7 +357,13 @@ while(err > 1e-3)
                 tr = abs(RR(k, i)) + 1e-20;
                 rate_ratio(idx) = tl/tr;
             end
-            cond2 = max(rate_ratio) > 1e-3;
+            max_ratio = max(rate_ratio) ;
+            
+            %Check constraints: no less than 0, no greater than 1.0
+            for i = 2:N-1
+                idx = i-1;
+                x(idx) = max(0.0, min(1.0, x(idx)));
+            end
             
             %Next round
             Y(PREV, k, 2:N-1) = x(:);
@@ -391,6 +393,7 @@ while(err > 1e-3)
     CUR = 3 - CUR;
 end
 fprintf('Main program converges after %d iterations!\n', iter_cnt);
+
 %=================================Helpers================================
 function ret = df(f, dx, N)
     ret = zeros(1, N);
