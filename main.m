@@ -26,6 +26,7 @@ zR = 0.02; %Position of right endpoint, m
 L = zR - zL; %Length of domain, m
 z = linspace(zL, zR, N); %Coordinates for each point, m
 dz = z(2)-z(1); %The uniform gap, m
+dz2 = dz^2;
 
 Tmin = 300.0; % K
 Tmax = 1500.0; % K
@@ -60,6 +61,10 @@ RR = zeros(K, N); %Chemical reaction rate, Kg / (m^3 * s)
 CFL = 0.8;
 max_dT = 0.5;
 max_dY = 1e-4 * ones(K, 1);
+
+c1 = 0.0; %Upwind coef for i+1
+c0 = 0.0; %Upwind coef for i
+c_1 = 0.0; %Upwind coef for i-1
 
 %=============================Init========================================
 if exist('data.txt','file')
@@ -196,9 +201,16 @@ while(err > 1e-4)
     %% Solve V
     coef = zeros(N, N);
     for i = 2 : N-1
-        coef(i, i-1) = -0.5 * rho(PREV, i) * u(PREV, i) / dz - mu(i) / dz^2;
-        coef(i, i) = rho(PREV, i) * V(PREV, i) + 2 * mu(i) / dz^2;
-        coef(i, i+1) = 0.5 * rho(PREV, i) * u(PREV, i) / dz - mu(i) / dz^2;
+        % Upwind
+        if u(PREV, i) < 0
+            c1 = 1.0; c0 = -1.0; c_1 = 0.0;
+        else
+            c1 = 0.0; c0 = 1.0; c_1 = -1.0;
+        end
+        
+        coef(i, i-1) = rho(PREV, i)*u(PREV, i)*c_1/dz - mu(i)/dz2;
+        coef(i, i) = rho(PREV, i)*u(PREV, i)*c0/dz + rho(PREV, i)*V(PREV, i) + 2*mu(i)/dz2;
+        coef(i, i+1) = rho(PREV, i)*u(PREV, i)*c1/dz - mu(i)/dz2;
     end
     rhs = -Nbla(PREV)*ones(N, 1);
     
@@ -249,7 +261,7 @@ while(err > 1e-4)
     errT = 1000.0;
     temp_iter_cnt = 0;
     
-    while(errT > 5.0)
+    while(errT > 2.0)
         temp_iter_cnt = temp_iter_cnt + 1;
         
         %Compute energy source term
@@ -280,9 +292,16 @@ while(err > 1e-4)
         %Construct the coefficient matrix
         coef = zeros(N, N);
         for i = 2 : N-1
-            coef(i, i-1) = -dt/dz*(rho(PREV, i)*cp(i)*u(CUR, i)/2 + lambda(i)/dz);
-            coef(i, i) = rho(PREV, i)*cp(i) + 2*lambda(i)*dt/dz^2;
-            coef(i, i+1) = dt/dz*(rho(PREV, i)*cp(i)*u(CUR, i)/2 - lambda(i)/dz);
+            % Upwind
+            if u(PREV, i) < 0
+                c1 = 1.0; c0 = -1.0; c_1 = 0.0;
+            else
+                c1 = 0.0; c0 = 1.0; c_1 = -1.0;
+            end
+            
+            coef(i, i-1) = rho(PREV, i)*cp(i)*u(CUR, i)*c_1*dt/dz - lambda(i)*dt/dz2;
+            coef(i, i) = rho(PREV, i)*cp(i)*(1+u(CUR, i)*c0*dt/dz) + 2*lambda(i)*dt/dz2;
+            coef(i, i+1) = rho(PREV, i)*cp(i)*u(CUR, i)*c1*dt/dz - lambda(i)*dt/dz2;
         end
         A = coef(2:N-1, 2:N-1);
         
@@ -300,8 +319,6 @@ while(err > 1e-4)
         
         %Next round
         T(PREV, 2:N-1) = x(:);
-        T(PREV, 2) = relaxation(T(PREV, 1), T(PREV, 3), 0.5);
-        T(PREV, N-1) = relaxation(T(PREV, N-2), T(PREV, N), 0.5);
         
         log(3, sprintf('Time step: %e s, errT: %e K', dt, errT));
     end
@@ -342,9 +359,16 @@ while(err > 1e-4)
             %Construct the coefficient matrix
             coef = zeros(N, N);
             for i = 2 : N-1
-                coef(i, i-1) = -dt/dz*rho(PREV, i)*(u(CUR, i)/2+D(k, i)/dz);
-                coef(i, i) = rho(PREV, i)*(1+2*D(k, i)*dt/dz^2);
-                coef(i, i+1) = dt/dz*rho(PREV, i)*(u(CUR, i)/2-D(k, i)/dz);
+                % Upwind
+                if u(PREV, i) < 0
+                    c1 = 1.0; c0 = -1.0; c_1 = 0.0;
+                else
+                    c1 = 0.0; c0 = 1.0; c_1 = -1.0;
+                end
+                
+                coef(i, i-1) = rho(PREV, i)*(u(CUR, i)*c_1*dt/dz-D(k, i)*dt/dz2);
+                coef(i, i) = rho(PREV, i)*(1+2*D(k, i)*dt/dz2+u(CUR, i)*c0*dt/dz);
+                coef(i, i+1) = rho(PREV, i)*(u(CUR, i)*c1*dt/dz-D(k, i)*dt/dz2);
             end
             A = coef(2:N-1, 2:N-1);
             
@@ -381,8 +405,6 @@ while(err > 1e-4)
             
             %Next round
             Y(PREV, k, 2:N-1) = x(:);
-            Y(PREV, k, 2) = relaxation(Y(PREV, k, 1), Y(PREV, k, 3), 0.5);
-            Y(PREV, k, N-1) = relaxation(Y(PREV, k, N-2), Y(PREV, k, N), 0.5);
             
             log(4, sprintf('Time step: %e s, errY: %e', dt, errY));
         end
