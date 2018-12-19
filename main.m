@@ -80,8 +80,8 @@ if exist('data.txt','file')
     for k = 1:K
         Y(PREV, k, :) = data_set(:, 6+k);
     end
-    report(0, 'Done!');
 else
+    report(0, 'Initializing with pre-defined data ...');
     rho(PREV, :) = linspace(rhoL, rhoR, N);
     u(PREV, :) = linspace(uL, uR, N);
     V(PREV, :) = -df(rho(PREV, :) .* u(PREV, :), dz, N) ./ (2 * rho(PREV, :));
@@ -331,36 +331,38 @@ while(err > 1e-4)
     %% Sovle Y
     report(2, 'Solving Y equations ...');
     
-    %Update diffusion coefficients and RR
-    for i = 1:N
-        local_T = T(CUR, i);
-        set(gas, 'T', local_T, 'P', P, 'Y', squeeze(Y(PREV, :, i)));
-        D(:, i) = mixDiffCoeffs(gas);    
-        w = netProdRates(gas); % kmol / (m^3 * s)
-        RR(:, i) = w .* MW; % Kg / (m^3 * s)
-    end
-    
-    %Solve each species
-    for k=1:K
-        max_dY(k) = 1e-2 * max(Y(PREV, k, :));
-        if max_dY(k) < 1e-20
-            max_dY(k) = 1e-6;
+    y_iter_cnt = 0;
+    ok = false;
+    while(~ok)
+        y_iter_cnt = y_iter_cnt + 1;
+        %Update diffusion coefficients and RR
+        for i = 1:N
+            local_T = T(CUR, i);
+            set(gas, 'T', local_T, 'P', P, 'Y', squeeze(Y(PREV, :, i)));
+            D(:, i) = mixDiffCoeffs(gas);    
+            w = netProdRates(gas); % kmol / (m^3 * s)
+            RR(:, i) = w .* MW; % Kg / (m^3 * s)
         end
-        report(3, sprintf('%s:(dY_max=%e)', NAME{1, k}, max_dY(k)));
-        
-        ok = false;
-        y_iter_cnt = 0;
-        while(~ok)
-            y_iter_cnt = y_iter_cnt + 1;
-            
-            %Choose proper time step
-            %according to the max allowable change of Y_k
-            dt = dt_cfl;
+        %Max allowable change of each Y
+        for k=1:K
+            max_dY(k) = 1e-2 * max(Y(PREV, k, :));
+            if max_dY(k) < 1e-20
+                max_dY(k) = 1e-6;
+            end
+        end
+        %Choose proper time step
+        sdt = dt_cfl * ones(K, 1);
+        for k = 1:K
             for i = 2:N-1
                 dt_chem = rho(PREV, i)*max_dY(k)/(abs(RR(k, i))+1e-20);
-                dt = min(dt, dt_chem);
+                sdt(k) = min(sdt(k), dt_chem);
             end
-                        
+        end
+        dt = min(sdt);
+        %Solve each species
+        errY = zeros(K, 1);
+        for k=1:K
+            %report(3, sprintf('%s:(dY_max=%e)', NAME{1, k}, max_dY(k)));
             %Construct the coefficient matrix
             coef = zeros(N, N);
             for i = 2 : N-1
@@ -376,7 +378,6 @@ while(err > 1e-4)
                 coef(i, i+1) = rho(PREV, i)*(u(CUR, i)*cr*dt/dz-D(k, i)*dt/dz2);
             end
             A = coef(2:N-1, 2:N-1);
-            
             %Construct the RHS
             rhs = zeros(N, 1);
             for i = 2 : N-1
@@ -385,51 +386,42 @@ while(err > 1e-4)
             b = rhs(2:N-1);
             b(1) = b(1) - coef(2, 1) * Y(PREV, k, 1);
             b(N-2) = b(N-2) - coef(N-1, N) * Y(PREV, k, N);
-            
             %Solve
             x = solveTriDiagMat(A, b);
-            
-            %Check convergence
-            errY = max(abs(squeeze(Y(PREV, k, 2:N-1)) - x));
-            
-            rate_ratio = zeros(N-2, 1);
-            relative_change_ratio = zeros(N-2, 1);
-            for i = 2:N-1
-                idx = i-1;
-                dYdt = (x(idx)-Y(PREV, k, i))/dt;
-                tl = abs(rho(PREV, i)*dYdt);
-                tr = abs(RR(k, i)) + 1e-20;
-                rate_ratio(idx) = tl/tr;
-                
-                ty = max(Y(PREV, k, i), 1e-20);
-                relative_change_ratio(idx) = abs(dYdt*dt) / ty;
-            end
-            max_rr = max(rate_ratio);
-            max_rcr = max(relative_change_ratio);
-            
-            ok = max_rcr < 1e-2 || max_rr < 1e-3;
-            
-            report(4, sprintf('Time step: %es, MaxAbsChange: %e, MaxRelChange: %e', dt, errY, max_rcr));
-            
             %Check constraints: no less than 0, no greater than 1.0
             for i = 2:N-1
                 idx = i-1;
-                x(idx) = max(0.0, min(1.0, x(idx)));
+                if x(idx) < 0
+                    x(idx) = 0.0;
+                end
+                if x(idx) > 1.0
+                    x(idx) = 1.0;
+                end
             end
-            
-            %Next round
+            %Stat err and update
+            errY(k) = max(abs(squeeze(Y(PREV, k, 2:N-1)) - x));
             Y(PREV, k, 2:N-1) = x(:);
         end
-        
-        %Update
-        report(4, sprintf('Converges after %d iterations!', y_iter_cnt));
-        Y(CUR, k, :) = Y(PREV, k, :);
+        %Normalization
+        for i = 2 : N-1
+            Y(PREV, :, i) = Y(PREV, :, i) / sum(Y(PREV, :, i));
+        end
+        %Check convergence
+        relative_change_ratio = zeros(N-2, 1);
+        for i = 2:N-1
+            idx = i-1;
+            deltaY = abs(x(idx)-Y(PREV, k, i));
+            ty = max(Y(PREV, k, i), 1e-20);
+            relative_change_ratio(idx) = deltaY / ty;
+        end
+        mrcr = max(relative_change_ratio);
+
+        ok = mrcr < 1e-2;
+        report(4, sprintf('Time step: %es, MaxAbsChange: %e, MaxRelChange: %e', dt, errY, mrcr));
     end
-    
-    %Normalization
-    for i = 2 : N-1
-        Y(CUR, :, i) = Y(CUR, :, i) / sum(Y(CUR, :, i));
-    end
+    %Update
+    report(4, sprintf('Converges after %d iterations!', y_iter_cnt));
+    Y(CUR, k, :) = Y(PREV, k, :);
     
     %% Update density
     rho(CUR, 1) = rho(PREV, 1);
