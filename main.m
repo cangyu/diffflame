@@ -30,8 +30,8 @@ uL = mdot_L / rhoL / S; %Velocity at left entrance, m/s
 uR = mdot_R / rhoR / S; %Velocity at right entrance, m/s
 
 N = 2001; %Total num of grid points
-zL = 0.0; %Position of left endpoint, m
-zR = 0.02; %Position of right endpoint, m
+zL = -0.01; %Position of left endpoint, m
+zR = 0.01; %Position of right endpoint, m
 L = zR - zL; %Length of domain, m
 z = linspace(zL, zR, N); %Coordinates for each point, m
 dz = z(2)-z(1); %The uniform gap, m
@@ -63,9 +63,9 @@ CFL = 0.8;
 max_dT = 0.5;
 max_dY = zeros(K, 1);
 
-c1 = 0.0; %Upwind coef for i+1
-c0 = 0.0; %Upwind coef for i
-c_1 = 0.0; %Upwind coef for i-1
+cr = 0.0; %Upwind coef for i+1
+cm = 0.0; %Upwind coef for i
+cl = 0.0; %Upwind coef for i-1
 
 %=============================Init========================================
 if exist('data.txt','file')
@@ -204,14 +204,14 @@ while(err > 1e-4)
     for i = 2 : N-1
         % Upwind
         if u(PREV, i) < 0
-            c1 = 1.0; c0 = -1.0; c_1 = 0.0;
+            cr = 1.0; cm = -1.0; cl = 0.0;
         else
-            c1 = 0.0; c0 = 1.0; c_1 = -1.0;
+            cr = 0.0; cm = 1.0; cl = -1.0;
         end
         
-        coef(i, i-1) = rho(PREV, i)*u(PREV, i)*c_1/dz - mu(i)/dz2;
-        coef(i, i) = rho(PREV, i)*u(PREV, i)*c0/dz + rho(PREV, i)*V(PREV, i) + 2*mu(i)/dz2;
-        coef(i, i+1) = rho(PREV, i)*u(PREV, i)*c1/dz - mu(i)/dz2;
+        coef(i, i-1) = rho(PREV, i)*u(PREV, i)*cl/dz - mu(i)/dz2;
+        coef(i, i) = rho(PREV, i)*u(PREV, i)*cm/dz + rho(PREV, i)*V(PREV, i) + 2*mu(i)/dz2;
+        coef(i, i+1) = rho(PREV, i)*u(PREV, i)*cr/dz - mu(i)/dz2;
     end
     rhs = -Nbla(PREV)*ones(N, 1);
     
@@ -286,14 +286,14 @@ while(err > 1e-4)
         for i = 2 : N-1
             % Upwind
             if u(PREV, i) < 0
-                c1 = 1.0; c0 = -1.0; c_1 = 0.0;
+                cr = 1.0; cm = -1.0; cl = 0.0;
             else
-                c1 = 0.0; c0 = 1.0; c_1 = -1.0;
+                cr = 0.0; cm = 1.0; cl = -1.0;
             end
             
-            coef(i, i-1) = rho(PREV, i)*cp(i)*u(CUR, i)*c_1*dt/dz - lambda(i)*dt/dz2;
-            coef(i, i) = rho(PREV, i)*cp(i)*(1+u(CUR, i)*c0*dt/dz) + 2*lambda(i)*dt/dz2;
-            coef(i, i+1) = rho(PREV, i)*cp(i)*u(CUR, i)*c1*dt/dz - lambda(i)*dt/dz2;
+            coef(i, i-1) = rho(PREV, i)*cp(i)*u(CUR, i)*cl*dt/dz - lambda(i)*dt/dz2;
+            coef(i, i) = rho(PREV, i)*cp(i)*(1+u(CUR, i)*cm*dt/dz) + 2*lambda(i)*dt/dz2;
+            coef(i, i+1) = rho(PREV, i)*cp(i)*u(CUR, i)*cr*dt/dz - lambda(i)*dt/dz2;
         end
         A = coef(2:N-1, 2:N-1);
         
@@ -366,14 +366,14 @@ while(err > 1e-4)
             for i = 2 : N-1
                 % Upwind
                 if u(PREV, i) < 0
-                    c1 = 1.0; c0 = -1.0; c_1 = 0.0;
+                    cr = 1.0; cm = -1.0; cl = 0.0;
                 else
-                    c1 = 0.0; c0 = 1.0; c_1 = -1.0;
+                    cr = 0.0; cm = 1.0; cl = -1.0;
                 end
                 
-                coef(i, i-1) = rho(PREV, i)*(u(CUR, i)*c_1*dt/dz-D(k, i)*dt/dz2);
-                coef(i, i) = rho(PREV, i)*(1+2*D(k, i)*dt/dz2+u(CUR, i)*c0*dt/dz);
-                coef(i, i+1) = rho(PREV, i)*(u(CUR, i)*c1*dt/dz-D(k, i)*dt/dz2);
+                coef(i, i-1) = rho(PREV, i)*(u(CUR, i)*cl*dt/dz-D(k, i)*dt/dz2);
+                coef(i, i) = rho(PREV, i)*(1+2*D(k, i)*dt/dz2+u(CUR, i)*cm*dt/dz);
+                coef(i, i+1) = rho(PREV, i)*(u(CUR, i)*cr*dt/dz-D(k, i)*dt/dz2);
             end
             A = coef(2:N-1, 2:N-1);
             
@@ -404,10 +404,10 @@ while(err > 1e-4)
                 ty = max(Y(PREV, k, i), 1e-20);
                 relative_change_ratio(idx) = abs(dYdt*dt) / ty;
             end
-            max_ratio = max(rate_ratio);
+            max_rr = max(rate_ratio);
             max_rcr = max(relative_change_ratio);
             
-            ok = max_rcr < 1e-2 || max_ratio < 1e-3;
+            ok = max_rcr < 1e-2 || max_rr < 1e-3;
             
             report(4, sprintf('Time step: %es, MaxAbsChange: %e, MaxRelChange: %e', dt, errY, max_rcr));
             
@@ -443,14 +443,14 @@ while(err > 1e-4)
     end
     rho(CUR, N) = rho(PREV, N);
     
-    %% Swap Index
-    PREV = 3 - PREV;
-    CUR = 3 - CUR;
-    
     %% Save current iteration
     report(2, 'Writing data ...');
     write_data(CUR);
     report(2, 'Done!');
+    
+    %% Swap Index
+    PREV = 3 - PREV;
+    CUR = 3 - CUR;
 end
 report(0, sprintf('Main program converges after %d iterations!', iter_cnt));
 
