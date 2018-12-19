@@ -1,89 +1,105 @@
 clear all; close all; clc;
 
-P = oneatm; % Pa
-mdot_L = 1.0/100 ; % Fuel stream, Kg/s
-mdot_R = -16.6/100; % Air stream, Kg/s
-rhoL = 0.716; % Density of CH4, Kg/m^3
-rhoR = 1.3947; % Density of Air, Kg/m^3
+fuel = Methane();
+oxidizer = Air();
+gas = GRI30('Mix');
+
+MW = molecularWeights(gas); %Molecular weight, Kg/Kmol
+NAME = speciesNames(gas); %Name of each species
+global K;
+K = nSpecies(gas); %Total num of species
+
+global P;
+P = oneatm; %The constant pressure, Pa
+mdot_L = 1.0/100 ; %Fuel stream, Kg/s
+mdot_R = -16.6/100; %Air stream, Kg/s
+rhoL = 0.716; %Density of CH4, Kg/m^3
+rhoR = 1.3947; %Density of Air, Kg/m^3
 S = 1.0; %Cross area, m^2
 uL = mdot_L / rhoL / S; %Velocity at left entrance, m/s 
 uR = mdot_R / rhoR / S; %Velocity at right entrance, m/s
 
-fuel = Methane();
-air = Air();
-gas = GRI30('Mix');
-setPressure(gas, P);
-
-N = 2001; % Total num of grid points
-K = nSpecies(gas); % Total num of species
-
-MW = molecularWeights(gas); % Kg/Kmol
-NAME = speciesNames(gas);
-
-zL = 0.0;
-zR = 0.02; % m
-L = zR - zL;
-z = linspace(zL, zR, N);
-dz = z(2)-z(1);
+global N;
+N = 2001; %Total num of grid points
+zL = 0.0; %Position of left endpoint, m
+zR = 0.02; %Position of right endpoint, m
+L = zR - zL; %Length of domain, m
+z = linspace(zL, zR, N); %Coordinates for each point, m
+dz = z(2)-z(1); %The uniform gap, m
 
 Tmin = 300.0; % K
 Tmax = 1500.0; % K
 Tmax_pos = relaxation(zL, zR, 0.5);
 
+global PREV;
 PREV = 1;
+global CUR;
 CUR = 2;
 
+global rho;
 rho = zeros(2, N); % Kg / m^3
+global u;
 u = zeros(2, N); % m/s
+global V;
 V = zeros(2, N);
+global Nbla;
+Nbla = zeros(2, 1); %The eigenvalue
+global T;
 T = zeros(2, N); % K
+global Y;
 Y = zeros(2, K, N);
-Nbla = zeros(1, 2); % The eigenvalue
 
-mu = zeros(1, N); % Viscosity, Pa * s = Kg / (m * s)
-cp = zeros(1, N); % Specific heat, J / (Kg * K)
-lambda = zeros(1, N); % Thermal conductivity, W / (m * K)
-D = zeros(K, N); % Binary diffusion coefficients, m^2 / s
+mu = zeros(1, N); %Viscosity, Pa * s = Kg / (m * s)
+cp = zeros(1, N); %Specific heat, J / (Kg * K)
+lambda = zeros(1, N); %Thermal conductivity, W / (m * K)
+D = zeros(K, N); %Binary diffusion coefficients, m^2 / s
 
-RS = zeros(N, 1); % Chemical reaction source term, J / (m^3 * s)
-RR = zeros(K, N); % Chemical reaction rate, Kg / (m^3 * s)
+RS = zeros(N, 1); %Energy source due to chemical reaction, J / (m^3 * s)
+RR = zeros(K, N); %Chemical reaction rate, Kg / (m^3 * s)
 
 CFL = 0.8;
 max_dT = 0.5;
 max_dY = 1e-4 * ones(K, 1);
 
 %=============================Init========================================
-rho(PREV, :) = linspace(rhoL , rhoR, N);
-rho(CUR, :) = rho(PREV, :);
-
-u(PREV, :) = linspace(uL, uR, N);
-u(CUR, :) = u(PREV, :);
-
-Nbla(PREV) = -0.1;
-
-Y(PREV, speciesIndex(gas, 'CH4'), :) = linspace(1.0, 0.0, N);
-Y(PREV, speciesIndex(gas, 'O2'), :) = linspace(0.0, massFraction(air, 'O2'), N);
-Y(PREV, speciesIndex(gas, 'N2'), :) = linspace(0.0, massFraction(air, 'N2'), N);
-
-V(PREV, :) = -df(rho(PREV, :) .* u(PREV, :), dz, N) ./ (2 * rho(PREV, :));
-
-for i = 1:N
-    if abs(z(i) - Tmax_pos) < 0.15 * L
-        T(PREV, i) = Tmax;
-    else
-        T(PREV, i) = Tmin;
+if exist('data.txt','file')
+    log(0, 'Load existing data ...');
+    data_set = importdata('data.txt');
+    rho(PREV, :) = data_set(:, 1);
+    u(PREV, :) = data_set(:, 2);
+    V(PREV, :) = data_set(:, 3);
+    P = data_set(1, 4);
+    Nbla(PREV) = data_set(1, 5);
+    T(PREV, :) = data_set(:, 6);
+    for k = 1:K
+        Y(PREV, k, :) = data_set(:, 6+k);
     end
+    log(0, 'Done!');
+else
+    rho(PREV, :) = linspace(rhoL, rhoR, N);
+    u(PREV, :) = linspace(uL, uR, N);
+    V(PREV, :) = -df(rho(PREV, :) .* u(PREV, :), dz, N) ./ (2 * rho(PREV, :));
+    Nbla(PREV) = -0.1;
+    for i = 1:N
+        if abs(z(i) - Tmax_pos) < 0.15 * L
+            T(PREV, i) = Tmax;
+        else
+            T(PREV, i) = Tmin;
+        end
+    end
+    Y(PREV, speciesIndex(gas, 'CH4'), :) = linspace(1.0, 0.0, N);
+    Y(PREV, speciesIndex(gas, 'O2'), :) = linspace(0.0, massFraction(oxidizer, 'O2'), N);
+    Y(PREV, speciesIndex(gas, 'N2'), :) = linspace(0.0, massFraction(oxidizer, 'N2'), N);
 end
-T(CUR, :) = T(PREV, :);
 
 %==================================Loop=================================
-fprintf('Main program running ...\n');
+log(0, 'Main program running ...');
 err = 1.0;
 iter_cnt = 0;
 
 while(err > 1e-4)
     iter_cnt = iter_cnt + 1;
-    fprintf("Iteration %d:\n", iter_cnt);
+    log(1, sprintf('Iteration %d:', iter_cnt));
     
     %% Calc physical properties
     for i = 1:N
@@ -221,19 +237,19 @@ while(err > 1e-4)
     
     Nbla(CUR) = (rhs2 - lhs1 - lhs2) / N;
     err = abs(Nbla(CUR) - Nbla(PREV));
-    fprintf("    err = %f\n", err);
+    log(2, sprintf('errNbla = %f', err));
     Nbla(CUR) = relaxation(Nbla(PREV), Nbla(CUR), 0.5);
     
     %% CFL condition
     dt_cfl = CFL * dz / max(abs(u(CUR, :)) + 1e-20);
-    fprintf('    Time step given by CFL condition: %e s\n', dt_cfl);
+    log(2, sprintf('Time step given by CFL condition: %e s', dt_cfl));
     
     %% Solve T
-    fprintf('    Solving T equation ...\n');
+    log(2, 'Solving T equation ...');
     errT = 1000.0;
     temp_iter_cnt = 0;
     
-    while(errT > 2.0)
+    while(errT > 5.0)
         temp_iter_cnt = temp_iter_cnt + 1;
         
         %Compute energy source term
@@ -251,7 +267,6 @@ while(err > 1e-4)
         for i = 2:N-1
             dt = min(dt,  abs(rho(PREV, i)*cp(i))*max_dT/abs(RS(i) + 1e-20));
         end
-        fprintf('        Time step: %e s, ', dt);
         
         %Construct the RHS
         rhs = zeros(N, 1);
@@ -276,7 +291,6 @@ while(err > 1e-4)
         
         %Calc error
         errT = max(abs(squeeze(T(PREV, 2:N-1))' - x));
-        fprintf('errT: %e K\n', errT);
         
         %Check constraint: no less than 300, no greater than 3000
         for i = 2:N-1
@@ -285,17 +299,16 @@ while(err > 1e-4)
         end
         
         %Next round
-         T(PREV, 2:N-1) = x(:); 
-         T(PREV, 2) = relaxation(T(PREV, 1), T(PREV, 3), 0.5);
-         T(PREV, N-1) = relaxation(T(PREV, N-2), T(PREV, N), 0.5);
+        T(PREV, 2:N-1) = x(:);
+        log(3, sprintf('Time step: %e s, errT: %e K', dt, errT));
     end
     
     %Update
-    fprintf('        Converges after %d iterations!\n', temp_iter_cnt);
+    log(3, sprintf('Converges after %d iterations!', temp_iter_cnt));
     T(CUR, :) = T(PREV, :);
     
     %% Sovle Y
-    fprintf('    Solving Y equations ...\n');
+    log(2, 'Solving Y equations ...');
     
     %Update diffusion coefficients and RR
     for i = 1:N
@@ -308,7 +321,7 @@ while(err > 1e-4)
     
     %Solve each species
     for k=1:K
-        fprintf('      %s:\n', NAME{1, k});
+        log(3, sprintf('Calculating %s ...', NAME{1, k}));
         errY = 1.0;
         max_ratio = 1.0;
         y_iter_cnt = 0;
@@ -322,8 +335,7 @@ while(err > 1e-4)
             for i = 2:N-1
                 dt = min(dt, rho(PREV, i) * max_dY(k) / (abs(RR(k, i))+1e-20));
             end
-            fprintf('        Time step: %e s, ', dt);
-            
+                        
             %Construct the coefficient matrix
             coef = zeros(N, N);
             for i = 2 : N-1
@@ -347,7 +359,6 @@ while(err > 1e-4)
             
             %Calc error
             errY = max(abs(squeeze(Y(PREV, k, 2:N-1)) - x));
-            fprintf('errY: %e\n', errY);
             
             rate_ratio = zeros(N-2, 1);
             for i = 2:N-1
@@ -369,10 +380,12 @@ while(err > 1e-4)
             Y(PREV, k, 2:N-1) = x(:);
             Y(PREV, k, 2) = relaxation(Y(PREV, k, 1), Y(PREV, k, 3), 0.5);
             Y(PREV, k, N-1) = relaxation(Y(PREV, k, N-2), Y(PREV, k, N), 0.5);
+            
+            log(4, sprintf('Time step: %e s, errY: %e', dt, errY));
         end
         
         %Update
-        fprintf('        Converges after %d iterations!\n', y_iter_cnt);
+        log(4, sprintf('Converges after %d iterations!', y_iter_cnt));
         Y(CUR, k, :) = Y(PREV, k, :);
     end
     
@@ -391,8 +404,12 @@ while(err > 1e-4)
     %% Swap Index
     PREV = 3 - PREV;
     CUR = 3 - CUR;
+    
+    %% Save
+    log(2, 'Writing data ...');
+    write_data(CUR);
 end
-fprintf('Main program converges after %d iterations!\n', iter_cnt);
+log(0, sprintf('Main program converges after %d iterations!', iter_cnt));
 
 %=================================Helpers================================
 function ret = df(f, dx, N)
@@ -427,4 +444,42 @@ function x = solveTriDiagMat(B, b)
     [n, ~] = size(B);
     A = spdiags(spdiags(B, -1:1), -1:1, n, n);
     x = A\b;
+end
+
+function log(level, msg)
+    n = int32(2 * level);
+    k = 0;
+    while(k < n)
+        fprintf(' ');
+        k = k+1;
+    end
+    fprintf('%s\n', msg);
+end
+
+function write_data(idx)
+    global N
+    global K
+    global rho
+    global u
+    global V
+    global P
+    global Nbla
+    global T
+    global Y
+    
+    fout = fopen('data.txt', 'w');
+    for i = 1:N
+        fprintf(fout, '%16.6e', rho(idx, i));
+        fprintf(fout, ' %16.6e', u(idx, i));
+        fprintf(fout, ' %16.6e', V(idx, i));
+        fprintf(fout, ' %16.6e', P);
+        fprintf(fout, ' %16.6e', Nbla(idx));
+        fprintf(fout, ' %16.6e', T(idx, i));
+        for k = 1:K
+            fprintf(fout, ' %16.6e', Y(idx, k, i));
+        end
+        fprintf(fout, '\n');
+    end
+    
+    fclose(fout);
 end
