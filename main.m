@@ -300,6 +300,9 @@ while(err > 1e-4)
         
         %Next round
         T(PREV, 2:N-1) = x(:);
+        T(PREV, 2) = relaxation(T(PREV, 1), T(PREV, 3), 0.5);
+        T(PREV, N-1) = relaxation(T(PREV, N-2), T(PREV, N), 0.5);
+        
         log(3, sprintf('Time step: %e s, errT: %e K', dt, errT));
     end
     
@@ -405,9 +408,10 @@ while(err > 1e-4)
     PREV = 3 - PREV;
     CUR = 3 - CUR;
     
-    %% Save
+    %% Save current iteration
     log(2, 'Writing data ...');
     write_data(CUR);
+    log(2, 'Done!');
 end
 log(0, sprintf('Main program converges after %d iterations!', iter_cnt));
 
