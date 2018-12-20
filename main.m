@@ -340,11 +340,11 @@ while(err > 1e-4)
             end
         end
         %Choose proper time step
-        dt = dt_cfl * ones(K, 1);
+        dt = dt_cfl;
         for k = 1:K
             for i = 2:N-1
                 dt_chem = rho(PREV, i)*max_dY(k)/(abs(RR(k, i))+1e-20);
-                dt(k) = min(dt(k), dt_chem);
+                dt = min(dt, dt_chem);
             end
         end
         %Solve each species
@@ -360,15 +360,15 @@ while(err > 1e-4)
                 else
                     cr = 0.0; cm = 1.0; cl = -1.0;
                 end
-                coef(i, i-1) = rho(PREV, i)*(u(CUR, i)*cl*dt(k)/dz-D(k, i)*dt(k)/dz2);
-                coef(i, i) = rho(PREV, i)*(1+2*D(k, i)*dt(k)/dz2+u(CUR, i)*cm*dt(k)/dz);
-                coef(i, i+1) = rho(PREV, i)*(u(CUR, i)*cr*dt(k)/dz-D(k, i)*dt(k)/dz2);
+                coef(i, i-1) = rho(PREV, i)*(u(CUR, i)*cl*dt/dz-D(k, i)*dt/dz2);
+                coef(i, i) = rho(PREV, i)*(1+2*D(k, i)*dt/dz2+u(CUR, i)*cm*dt/dz);
+                coef(i, i+1) = rho(PREV, i)*(u(CUR, i)*cr*dt/dz-D(k, i)*dt/dz2);
             end
             A = coef(2:N-1, 2:N-1);
             %Construct the RHS
             rhs = zeros(N, 1);
             for i = 2 : N-1
-                rhs(i) = rho(PREV, i)*Y(PREV, k, i)+dt(k)*RR(k, i);
+                rhs(i) = rho(PREV, i)*Y(PREV, k, i)+dt*RR(k, i);
             end
             b = rhs(2:N-1);
             b(1) = b(1) - coef(2, 1) * Y(PREV, k, 1);
@@ -403,10 +403,10 @@ while(err > 1e-4)
         for k = 1:K
             t1 = max(errY(k, :));
             t2 = max(relative_change(k, :));
-            msg = sprintf('%s: dt=%es, MaxAbsChange=%e, MaxRelChange=%e',NAME{1, k}, dt(k), t1, t2);
+            msg = sprintf('%s: MaxAbsChange=%e, MaxRelChange=%e',NAME{1, k}, t1, t2);
             report(4, msg);
         end
-        report(3, sprintf('Iter %d: MaxRelChange=%e', y_iter_cnt, mrc));
+        report(3, sprintf('Iter %d: dt=%es, MaxRelChange=%e', y_iter_cnt, dt, mrc));
     end
     %Update
     report(3, sprintf('Converges after %d iterations!', y_iter_cnt));
