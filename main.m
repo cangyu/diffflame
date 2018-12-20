@@ -400,7 +400,7 @@ while(err > 1e-4)
             Y(PREV, :, i) = Y(PREV, :, i) / sum(Y(PREV, :, i));
         end
         %Check convergence
-        mrc = max(relative_change);
+        mrc = max(max(relative_change));
         ok = mrc < 1e-2;
         report(3, sprintf('Time step: %es, MaxRelChange: %e', dt, mrc));
     end
