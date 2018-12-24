@@ -37,10 +37,6 @@ z = linspace(zL, zR, N); %Coordinates for each point, m
 dz = z(2)-z(1); %The uniform gap, m
 dz2 = dz^2;
 
-Tmin = 300.0; % K
-Tmax = 1500.0; % K
-Tmax_pos = relaxation(zL, zR, 0.5);
-
 PREV = 1;
 CUR = 2;
 
@@ -67,19 +63,24 @@ cr = 0.0; %Upwind coef for i+1
 cm = 0.0; %Upwind coef for i
 cl = 0.0; %Upwind coef for i-1
 
+iter_cnt = 0;
+
 %=============================Init========================================
 if exist('data.txt','file')
     report(0, 'Loading existing data ...');
-    data_set = importdata('data.txt');
-    rho(PREV, :) = data_set(:, 1);
-    u(PREV, :) = data_set(:, 2);
-    V(PREV, :) = data_set(:, 3);
-    P = data_set(1, 4);
-    Nbla(PREV) = data_set(1, 5);
-    T(PREV, :) = data_set(:, 6);
+    fin = fopen('data.txt', 'r');
+    iter_cnt = fscanf(fin, '%d', [1 1]);
+    data_set = fscanf(fin, '%e', [6+K N]);
+    rho(PREV, :) = data_set(1, :);
+    u(PREV, :) = data_set(2, :);
+    V(PREV, :) = data_set(3, :);
+    P = data_set(4, 1);
+    Nbla(PREV) = data_set(5, 1);
+    T(PREV, :) = data_set(6, :);
     for k = 1:K
-        Y(PREV, k, :) = data_set(:, 6+k);
+        Y(PREV, k, :) = data_set(6+k, :);
     end
+    fclose(fin);
     report(0, 'Done!');
 else
     report(0, 'Initializing with pre-defined data ...');
@@ -87,22 +88,30 @@ else
     u(PREV, :) = linspace(uL, uR, N);
     V(PREV, :) = -df(rho(PREV, :) .* u(PREV, :), dz, N) ./ (2 * rho(PREV, :));
     Nbla(PREV) = -0.1;
+	
     for i = 1:N
-        if abs(z(i) - Tmax_pos) < 0.15 * L
-            T(PREV, i) = Tmax;
+        relative_pos = 1.0*(i-1)/(N-1);
+        
+        if abs(relative_pos - 0.5) < 0.15
+            T(PREV, i) = 1500.0;
         else
-            T(PREV, i) = Tmin;
+            T(PREV, i) = 300.0;
         end
+		
+		if relative_pos < 0.75
+			Y(PREV, speciesIndex(gas, 'CH4'), i) = (0.75-relative_pos)/0.75;
+		end
+		
+		if relative_pos > 0.25
+			Y(PREV, speciesIndex(gas, 'O2'), i) = massFraction(oxidizer, 'O2') * (relative_pos-0.25)/0.75;
+			Y(PREV, speciesIndex(gas, 'N2'), i) = massFraction(oxidizer, 'N2') * (relative_pos-0.25)/0.75;
+		end
     end
-    Y(PREV, speciesIndex(gas, 'CH4'), :) = linspace(1.0, 0.0, N);
-    Y(PREV, speciesIndex(gas, 'O2'), :) = linspace(0.0, massFraction(oxidizer, 'O2'), N);
-    Y(PREV, speciesIndex(gas, 'N2'), :) = linspace(0.0, massFraction(oxidizer, 'N2'), N);
 end
 
 %==================================Loop=================================
 report(0, 'Main program running ...');
 err = 1.0;
-iter_cnt = 0;
 
 while(err > 1e-4)
     iter_cnt = iter_cnt + 1;
@@ -117,7 +126,7 @@ while(err > 1e-4)
         mu(i) = viscosity(gas);
         lambda(i) = thermalConductivity(gas);
         cp(i) = cp_mass(gas);
-        D(:, i) = mixDiffCoeffs(gas);      
+        D(:, i) = mixDiffCoeffs(gas);
         
         w = netProdRates(gas); % kmol / (m^3 * s)
         h = enthalpies_RT(gas) * local_T * gasconstant; % J/Kmol                                              
@@ -128,7 +137,7 @@ while(err > 1e-4)
     
     %% Plot
     h = figure(1);
-    set(h, 'position', get(0,'ScreenSize'));
+    %set(h, 'position', get(0,'ScreenSize'));
     subplot(3, 4, 1)
     plot(z, T(PREV, :))
     title('$$T$$','Interpreter','latex');
@@ -255,7 +264,7 @@ while(err > 1e-4)
     Nbla(CUR) = relaxation(Nbla(PREV), Nbla(CUR), 0.5);
     
     %% CFL condition
-    dt_cfl = CFL * dz / max(abs(u(CUR, :)) + 1e-20);
+    dt_cfl = CFL * dz / max(abs(u(CUR, :)));
     report(2, sprintf('Time step given by CFL condition: %es', dt_cfl));
     
     %% Solve T
@@ -275,7 +284,6 @@ while(err > 1e-4)
         end
         
         %Choose proper time step
-        %according to max allowable change of T due to energy source term
         dt = dt_cfl;
         for i = 2:N-1
             dt_chem = rho(PREV, i)*cp(i)*max_dT/(abs(RS(i))+1e-20);
@@ -291,7 +299,6 @@ while(err > 1e-4)
             else
                 cr = 0.0; cm = 1.0; cl = -1.0;
             end
-            
             coef(i, i-1) = rho(PREV, i)*cp(i)*u(CUR, i)*cl*dt/dz - lambda(i)*dt/dz2;
             coef(i, i) = rho(PREV, i)*cp(i)*(1+u(CUR, i)*cm*dt/dz) + 2*lambda(i)*dt/dz2;
             coef(i, i+1) = rho(PREV, i)*cp(i)*u(CUR, i)*cr*dt/dz - lambda(i)*dt/dz2;
@@ -311,14 +318,39 @@ while(err > 1e-4)
         x = solveTriDiagMat(A, b);
         
         %Calc error
-        errT = max(abs(squeeze(T(PREV, 2:N-1))' - x));
-        ok = errT < 1e-1;
-        report(3, sprintf('Time step: %es, errT: %eK', dt, errT));
+        change_of_T = abs(x - squeeze(T(PREV, 2:N-1))');
+        macT = max(change_of_T);
+        
+        relative_change_of_T = zeros(N-2, 1);
+        for i = 2:N-1
+            idx = i-1;
+            relative_change_of_T(idx) = change_of_T(idx) / T(PREV, i);
+        end
+        mrcT = max(relative_change_of_T);
+        
+        %Check convergence
+        if iter_cnt == 1
+            ok =  macT< 10.0;
+        elseif iter_cnt == 2
+            ok = mrcT < 1e-3;
+        else
+            if temp_iter_cnt > 500
+                ok = true;
+            else
+                ok = mrcT < 1e-4;
+            end
+        end
+        report(3, sprintf('Time step=%es, MaxAbsChange=%eK, MaxRelChange=%e', dt, macT, mrcT));
         
         %Check constraint: no less than 300, no greater than 3000
         for i = 2:N-1
             idx = i - 1;
-            x(idx) = min(max(300, x(idx)), 3000);
+            if x(idx) < 300.0
+                x(idx) = 300.0;
+            end
+            if x(idx) > 3000.0
+                x(idx) = 3000.0;
+            end
         end
         
         %Next round
@@ -344,10 +376,9 @@ while(err > 1e-4)
     %Solve each species
     for k=1:K
         max_dY(k) = 1e-2 * max(Y(PREV, k, :));
-        if max_dY(k) < 1e-20
-            max_dY(k) = 1e-10;
+        if max_dY(k) < 1e-10
+            max_dY(k) = 1e-6;
         end
-        report(3, sprintf('%s:(dY_max=%e)', NAME{1, k}, max_dY(k)));
         
         ok = false;
         y_iter_cnt = 0;
@@ -359,7 +390,7 @@ while(err > 1e-4)
             %according to the max allowable change of Y_k
             dt = dt_cfl;
             for i = 2:N-1
-                dt_chem = rho(PREV, i)*max_dY(k)/(abs(RR(k, i))+1e-20);
+                dt_chem = rho(PREV, i)*max_dY(k)/(abs(RR(k, i))+1e-80);
                 dt = min(dt, dt_chem);
             end
                         
@@ -391,7 +422,7 @@ while(err > 1e-4)
             %Solve
             x = solveTriDiagMat(A, b);
             
-            %Check convergence
+            %Stat err
             errY = max(abs(squeeze(Y(PREV, k, 2:N-1)) - x));
             rcr = zeros(N-2, 1);
             for i = 2:N-1
@@ -401,17 +432,27 @@ while(err > 1e-4)
                 rcr(idx) = delta_Y / local_Y;
             end
             cur_mrcr = max(rcr);
-            ok = cur_mrcr < 1e-2;
-            if y_iter_cnt > 1 && cur_mrcr > prev_mrcr
+            
+            %Check convergence
+            if y_iter_cnt > 1000
                 ok = true;
+            elseif y_iter_cnt > 1 && cur_mrcr >= prev_mrcr
+                ok = true;
+            else
+                ok = cur_mrcr < 1e-2;
             end
             prev_mrcr = cur_mrcr;
-            report(4, sprintf('Time step: %es, MaxAbsChange: %e, MaxRelChange: %e', dt, errY, cur_mrcr));
+            report(3, sprintf('(%d/%d)%s: dY_max=%e, Time step=%es, MaxAbsChange=%e, MaxRelChange=%e',k, K, NAME{1, k}, max_dY(k), dt, errY, cur_mrcr));
             
             %Check constraints: no less than 0, no greater than 1.0
             for i = 2:N-1
                 idx = i-1;
-                x(idx) = max(0.0, min(1.0, x(idx)));
+                if x(idx) < 0
+                    x(idx) = 0.0;
+                end
+                if x(idx) > 1.0
+                    x(idx) = 1.0;
+                end
             end
             
             %Next round
@@ -442,7 +483,7 @@ while(err > 1e-4)
     
     %% Save current iteration
     report(2, 'Writing data ...');
-    write_data(CUR);
+    write_data(iter_cnt, CUR);
     
     %% Swap Index
     PREV = 3 - PREV;
@@ -495,7 +536,7 @@ function report(level, msg)
     fprintf('%s\n', msg);
 end
 
-function write_data(idx)
+function write_data(iter, idx)
     global N
     global K
     global rho
@@ -507,15 +548,16 @@ function write_data(idx)
     global Y
     
     fout = fopen('data.txt', 'w');
+    fprintf(fout, '%d\n', iter);
     for i = 1:N
-        fprintf(fout, '%16.6e', rho(idx, i));
-        fprintf(fout, ' %16.6e', u(idx, i));
-        fprintf(fout, ' %16.6e', V(idx, i));
-        fprintf(fout, ' %16.6e', P);
-        fprintf(fout, ' %16.6e', Nbla(idx));
-        fprintf(fout, ' %16.6e', T(idx, i));
+        fprintf(fout, '%24.6e', rho(idx, i));
+        fprintf(fout, '%24.6e', u(idx, i));
+        fprintf(fout, '%24.6e', V(idx, i));
+        fprintf(fout, '%24.6e', P);
+        fprintf(fout, '%24.6e', Nbla(idx));
+        fprintf(fout, '%24.6e', T(idx, i));
         for k = 1:K
-            fprintf(fout, ' %16.6e', Y(idx, k, i));
+            fprintf(fout, '%24.6e', Y(idx, k, i));
         end
         fprintf(fout, '\n');
     end
