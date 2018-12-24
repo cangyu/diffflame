@@ -91,11 +91,14 @@ else
 	
     for i = 1:N
         relative_pos = 1.0*(i-1)/(N-1);
-        
-        if abs(relative_pos - 0.5) < 0.15
-            T(PREV, i) = 1500.0;
+        if relative_pos < 0.3
+            T(PREV, i) = 300 + 1200 * relative_pos/0.3;
+        elseif relative_pos > 0.9
+            T(PREV, i) = 300;
+        elseif relative_pos > 0.5
+            T(PREV, i) = 1500 - 1200*(relative_pos-0.5)/0.4;
         else
-            T(PREV, i) = 300.0;
+            T(PREV, i) = 1500.0;
         end
 		
 		if relative_pos < 0.75
@@ -113,7 +116,7 @@ end
 report(0, 'Main program running ...');
 err = 1.0;
 
-while(err > 1e-4)
+while(err > 1e-3)
     iter_cnt = iter_cnt + 1;
     report(1, sprintf('Iteration %d:', iter_cnt));
     
@@ -137,76 +140,86 @@ while(err > 1e-4)
     
     %% Plot
     h = figure(1);
-    %set(h, 'position', get(0,'ScreenSize'));
-    subplot(3, 4, 1)
+    set(h, 'position', get(0,'ScreenSize'));
+    subplot(3, 6, 1)
     plot(z, T(PREV, :))
     title('$$T$$','Interpreter','latex');
     xlabel('z / m')
     ylabel('K')
     
-    subplot(3, 4, 2)
+    subplot(3, 6, 2)
     plot(z, rho(PREV, :))
     title('$$\rho$$','Interpreter','latex');
     xlabel('z / m');
     ylabel('Kg\cdotm^{-3}');
     
-    subplot(3, 4, 3)
+    subplot(3, 6, 3)
     plot(z, u(PREV, :) );
     title('$$u$$','Interpreter','latex')
     xlabel('z / m');
     ylabel('m/s');
     
-    subplot(3, 4, 4)
+    subplot(3, 6, 4)
     plot(z, RS);
     title('$$-\sum{h_k\dot{\omega}_k}$$','Interpreter','latex')
     xlabel('z / m');
     ylabel('J\cdotm^{-3}\cdots^{-1}');
       
-    subplot(3, 4, 5)
+    subplot(3, 6, 7)
     plot(z, squeeze(Y(PREV, speciesIndex(gas, 'CH4'), :)))
     title('Y_{CH4}');
     xlabel('z / m');
     
-    subplot(3, 4, 9)
+    subplot(3, 6, 8)
+    plot(z, squeeze(Y(PREV, speciesIndex(gas, 'O2'), :)))
+    title('Y_{O2}');
+    xlabel('z / m');
+    
+    subplot(3, 6, 9)
+    plot(z, squeeze(Y(PREV, speciesIndex(gas, 'CO2'), :)))
+    title('Y_{CO2}')
+    xlabel('z / m')
+    
+    subplot(3, 6, 10)
+    plot(z, squeeze(Y(PREV, speciesIndex(gas, 'H2O'), :)))
+    title('Y_{H2O}')
+    xlabel('z / m')
+    
+    subplot(3, 6, 11)
+    plot(z, squeeze(Y(PREV, speciesIndex(gas, 'N2'), :)))
+    title('Y_{N2}')
+    xlabel('z / m')
+    
+    subplot(3, 6, 12)
+    plot(z, squeeze(Y(PREV, speciesIndex(gas, 'NO'), :)))
+    title('Y_{NO}')
+    xlabel('z / m')
+    
+    subplot(3, 6, 13)
     plot(z, squeeze(RR(speciesIndex(gas, 'CH4'), :)))
     title('$$\dot{\omega}_{CH_4}$$','Interpreter','latex');
     xlabel('z / m')
     ylabel('Kg\cdotm^{-3}\cdots^{-1}')
     
-    subplot(3, 4, 6)
-    plot(z, squeeze(Y(PREV, speciesIndex(gas, 'O2'), :)))
-    title('Y_{O2}');
-    xlabel('z / m');
-    
-    subplot(3, 4, 10)
+    subplot(3, 6, 14)
     plot(z, squeeze(RR(speciesIndex(gas, 'O2'), :)))
     title('$$\dot{\omega}_{O_2}$$','Interpreter','latex');
     xlabel('z / m')
     ylabel('Kg\cdotm^{-3}\cdots^{-1}')
-    
-    subplot(3, 4, 7)
-    plot(z, squeeze(Y(PREV, speciesIndex(gas, 'CO2'), :)))
-    title('Y_{CO2}')
-    xlabel('z / m')
-    
-    subplot(3, 4, 11)
+
+    subplot(3, 6, 15)
     plot(z, squeeze(RR(speciesIndex(gas, 'CO2'), :)))
     title('$$\dot{\omega}_{CO_2}$$','Interpreter','latex');
     xlabel('z / m')
     ylabel('Kg\cdotm^{-3}\cdots^{-1}')
-    
-    subplot(3, 4, 8)
-    plot(z, squeeze(Y(PREV, speciesIndex(gas, 'H2O'), :)))
-    title('Y_{H2O}')
-    xlabel('z / m')
-    
-    subplot(3, 4, 12)
+
+    subplot(3, 6, 16)
     plot(z, squeeze(RR(speciesIndex(gas, 'H2O'), :)))
     title('$$\dot{\omega}_{H_2O}$$','Interpreter','latex');
     xlabel('z / m')
     ylabel('Kg\cdotm^{-3}\cdots^{-1}')
     
-    fpic = sprintf('pic/Iteration_%d.png', iter_cnt);
+    fpic = sprintf('../pic/Iteration_%d.png', iter_cnt);
     saveas(h, fpic);
     
     %% Solve V
@@ -229,7 +242,7 @@ while(err > 1e-4)
     b = rhs(2:N-1);
     b(1) = b(1) - coef(2, 1) * V(PREV, 1);
     b(N-2) = b(N-2) - coef(N-1, N) * V(PREV, N);
-    x = solveTriDiagMat(A, b);
+    x = solTriDiag(A, b);
     V(CUR, 1) = V(PREV, 1);
     V(CUR, 2:N-1) = x;
     V(CUR, N) = V(PREV, N);
@@ -266,107 +279,13 @@ while(err > 1e-4)
     %% CFL condition
     dt_cfl = CFL * dz / max(abs(u(CUR, :)));
     report(2, sprintf('Time step given by CFL condition: %es', dt_cfl));
-    
-    %% Solve T
-    report(2, 'Solving T equation ...');
-    temp_iter_cnt = 0;
-    ok = false;
-    while(~ok)
-        temp_iter_cnt = temp_iter_cnt + 1;
         
-        %Compute energy source term
-        for i = 2 : N-1
-            local_T = T(PREV, i);
-            set(gas, 'T', local_T, 'P', P, 'Y', squeeze(Y(PREV, :, i)));
-            w = netProdRates(gas); % kmol / (m^3 * s)
-            h = enthalpies_RT(gas) * local_T * gasconstant; % J/Kmol
-            RS(i) = -dot(w, h); % J / (m^3 * s)
-        end
-        
-        %Choose proper time step
-        dt = dt_cfl;
-        for i = 2:N-1
-            dt_chem = rho(PREV, i)*cp(i)*max_dT/(abs(RS(i))+1e-20);
-            dt = min(dt, dt_chem);
-        end
-        
-        %Construct the coefficient matrix
-        coef = zeros(N, N);
-        for i = 2 : N-1
-            % Upwind
-            if u(PREV, i) < 0
-                cr = 1.0; cm = -1.0; cl = 0.0;
-            else
-                cr = 0.0; cm = 1.0; cl = -1.0;
-            end
-            coef(i, i-1) = rho(PREV, i)*cp(i)*u(CUR, i)*cl*dt/dz - lambda(i)*dt/dz2;
-            coef(i, i) = rho(PREV, i)*cp(i)*(1+u(CUR, i)*cm*dt/dz) + 2*lambda(i)*dt/dz2;
-            coef(i, i+1) = rho(PREV, i)*cp(i)*u(CUR, i)*cr*dt/dz - lambda(i)*dt/dz2;
-        end
-        A = coef(2:N-1, 2:N-1);
-        
-        %Construct the RHS
-        rhs = zeros(N, 1);
-        for i = 2 : N-1
-            rhs(i) = rho(PREV, i)*cp(i)*T(PREV, i)+dt*RS(i);
-        end
-        b = rhs(2:N-1);
-        b(1) = b(1) - coef(2, 1) * T(PREV, 1);
-        b(N-2) = b(N-2) - coef(N-1, N) * T(PREV, N);
-        
-        %Solve
-        x = solveTriDiagMat(A, b);
-        
-        %Calc error
-        change_of_T = abs(x - squeeze(T(PREV, 2:N-1))');
-        macT = max(change_of_T);
-        
-        relative_change_of_T = zeros(N-2, 1);
-        for i = 2:N-1
-            idx = i-1;
-            relative_change_of_T(idx) = change_of_T(idx) / T(PREV, i);
-        end
-        mrcT = max(relative_change_of_T);
-        
-        %Check convergence
-        if iter_cnt == 1
-            ok =  macT< 10.0;
-        elseif iter_cnt == 2
-            ok = mrcT < 1e-3;
-        else
-            if temp_iter_cnt > 500
-                ok = true;
-            else
-                ok = mrcT < 1e-4;
-            end
-        end
-        report(3, sprintf('Time step=%es, MaxAbsChange=%eK, MaxRelChange=%e', dt, macT, mrcT));
-        
-        %Check constraint: no less than 300, no greater than 3000
-        for i = 2:N-1
-            idx = i - 1;
-            if x(idx) < 300.0
-                x(idx) = 300.0;
-            end
-            if x(idx) > 3000.0
-                x(idx) = 3000.0;
-            end
-        end
-        
-        %Next round
-        T(PREV, 2:N-1) = x(:);
-    end
-    
-    %Update
-    report(3, sprintf('Converges after %d iterations!', temp_iter_cnt));
-    T(CUR, :) = T(PREV, :);
-    
     %% Sovle Y
     report(2, 'Solving Y equations ...');
     
     %Update diffusion coefficients and RR
     for i = 1:N
-        local_T = T(CUR, i);
+        local_T = T(PREV, i);
         set(gas, 'T', local_T, 'P', P, 'Y', squeeze(Y(PREV, :, i)));
         D(:, i) = mixDiffCoeffs(gas);    
         w = netProdRates(gas); % kmol / (m^3 * s)
@@ -420,7 +339,7 @@ while(err > 1e-4)
             b(N-2) = b(N-2) - coef(N-1, N) * Y(PREV, k, N);
             
             %Solve
-            x = solveTriDiagMat(A, b);
+            x = solTriDiag(A, b);
             
             %Stat err
             errY = max(abs(squeeze(Y(PREV, k, 2:N-1)) - x));
@@ -470,6 +389,110 @@ while(err > 1e-4)
     end
     
     %% Update density
+    for i = 2:N-1
+        rho(PREV, i) = P / (gasconstant * T(PREV, i) * sum(squeeze(Y(CUR, :, i)) ./ MW'));
+        
+        %Ensure positivity
+        if rho(PREV, i) < 0
+            rho(PREV, i) = 0.0;
+        end
+    end
+    
+    %% Solve T
+    report(2, 'Solving T equation ...');
+    temp_iter_cnt = 0;
+    ok = false;
+    while(~ok)
+        temp_iter_cnt = temp_iter_cnt + 1;
+        
+        %Compute energy source term
+        for i = 2 : N-1
+            local_T = T(PREV, i);
+            set(gas, 'T', local_T, 'P', P, 'Y', squeeze(Y(CUR, :, i)));
+            w = netProdRates(gas); % kmol / (m^3 * s)
+            h = enthalpies_RT(gas) * local_T * gasconstant; % J/Kmol
+            RS(i) = -dot(w, h); % J / (m^3 * s)
+        end
+        
+        %Choose proper time step
+        dt = dt_cfl;
+        for i = 2:N-1
+            dt_chem = rho(PREV, i)*cp(i)*max_dT/(abs(RS(i))+1e-20);
+            dt = min(dt, dt_chem);
+        end
+        
+        %Construct the coefficient matrix
+        coef = zeros(N, N);
+        for i = 2 : N-1
+            % Upwind
+            if u(PREV, i) < 0
+                cr = 1.0; cm = -1.0; cl = 0.0;
+            else
+                cr = 0.0; cm = 1.0; cl = -1.0;
+            end
+            coef(i, i-1) = rho(PREV, i)*cp(i)*u(CUR, i)*cl*dt/dz - lambda(i)*dt/dz2;
+            coef(i, i) = rho(PREV, i)*cp(i)*(1+u(CUR, i)*cm*dt/dz) + 2*lambda(i)*dt/dz2;
+            coef(i, i+1) = rho(PREV, i)*cp(i)*u(CUR, i)*cr*dt/dz - lambda(i)*dt/dz2;
+        end
+        A = coef(2:N-1, 2:N-1);
+        
+        %Construct the RHS
+        rhs = zeros(N, 1);
+        for i = 2 : N-1
+            rhs(i) = rho(PREV, i)*cp(i)*T(PREV, i)+dt*RS(i);
+        end
+        b = rhs(2:N-1);
+        b(1) = b(1) - coef(2, 1) * T(PREV, 1);
+        b(N-2) = b(N-2) - coef(N-1, N) * T(PREV, N);
+        
+        %Solve
+        x = solTriDiag(A, b);
+        
+        %Calc error
+        change_of_T = abs(x - squeeze(T(PREV, 2:N-1))');
+        macT = max(change_of_T);
+        
+        relative_change_of_T = zeros(N-2, 1);
+        for i = 2:N-1
+            idx = i-1;
+            relative_change_of_T(idx) = change_of_T(idx) / T(PREV, i);
+        end
+        mrcT = max(relative_change_of_T);
+        
+        %Check convergence
+        if iter_cnt == 1
+            ok =  macT< 10.0;
+        elseif iter_cnt == 2
+            ok = mrcT < 1e-3;
+        else
+            if temp_iter_cnt > 500
+                ok = true;
+            else
+                ok = mrcT < 1e-4;
+            end
+        end
+        report(3, sprintf('Time step=%es, MaxAbsChange=%eK, MaxRelChange=%e', dt, macT, mrcT));
+        
+        %Check constraint: no less than 300, no greater than 3000
+        for i = 2:N-1
+            idx = i - 1;
+            if x(idx) < 300.0
+                x(idx) = 300.0;
+            end
+            if x(idx) > 3000.0
+                x(idx) = 3000.0;
+            end
+        end
+        
+        %Next round
+        T(PREV, 2:N-1) = x(:);
+    end
+    
+    %Update
+    report(3, sprintf('Converges after %d iterations!', temp_iter_cnt));
+    T(CUR, :) = T(PREV, :);
+    
+    %% Update density
     rho(CUR, 1) = rho(PREV, 1);
     for i = 2:N-1
         rho(CUR, i) = P / (gasconstant * T(CUR, i) * sum(squeeze(Y(CUR, :, i)) ./ MW'));
@@ -492,40 +515,6 @@ end
 report(0, sprintf('Main program converges after %d iterations!', iter_cnt));
 
 %=================================Helpers================================
-function ret = df(f, dx, N)
-    ret = zeros(1, N);
-    
-    ret(1) = f(2) - f(1);
-    for i = 2 : N-1
-        ret(i) = (f(i+1) - f(i-1))/2;
-    end
-    ret(N) = f(N) - f(N-1);
-    
-    ret = ret / dx;
-end
-
-function ret = ddf(f, dx, N)
-    ret = zeros(1, N);
-    
-    ret(1) = f(3) - 2*f(2) + f(1);
-    for i = 2 : N-1
-        ret(i) = f(i+1) - 2*f(i) + f(i-1);
-    end
-    ret(N) = f(N-2) - 2*f(N-1) + f(N);
-    
-    ret = ret / dx^2;
-end
-
-function ret = relaxation(a, b, alpha)
-    ret = (1-alpha) * a + alpha * b;
-end
-
-function x = solveTriDiagMat(B, b)
-    [n, ~] = size(B);
-    A = spdiags(spdiags(B, -1:1), -1:1, n, n);
-    x = A\b;
-end
-
 function report(level, msg)
     n = int32(2 * level);
     k = 0;
