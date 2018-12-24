@@ -1,4 +1,4 @@
 *.txt
-pic/*.fig
-pic/*.png
-pic/*.gif
+*.fig
+*.png
+*.gif

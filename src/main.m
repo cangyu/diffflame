@@ -83,33 +83,26 @@ if exist('data.txt','file')
     fclose(fin);
     report(0, 'Done!');
 else
-    report(0, 'Initializing with pre-defined data ...');
-    rho(PREV, :) = linspace(rhoL, rhoR, N);
-    u(PREV, :) = linspace(uL, uR, N);
+    report(0, 'Initializing ...');
+    [zc, uc, Tc,  Yc] = DiffFlameSim(L, P, 300.0, mdot_L, -mdot_R);
+    tpts = z - zL;
+    
+    T(PREV, :) = spline(zc, Tc, tpts);
+    u(PREV, :) = spline(zc, uc, tpts);
+    for k = 1:K
+        Y(PREV, k, :) = spline(zc, Yc(k, :), tpts);
+    end
+    
+    rho(PREV, 1) = rhoL;
+    for i = 2:N-1
+        rho(PREV, i) = P / (gasconstant * T(PREV, i) * sum(squeeze(Y(PREV, :, i)) ./ MW'));
+    end
+    rho(PREV, N) = rhoR;
+    
     V(PREV, :) = -df(rho(PREV, :) .* u(PREV, :), dz, N) ./ (2 * rho(PREV, :));
     Nbla(PREV) = -0.1;
-	
-    for i = 1:N
-        relative_pos = 1.0*(i-1)/(N-1);
-        if relative_pos < 0.3
-            T(PREV, i) = 300 + 1200 * relative_pos/0.3;
-        elseif relative_pos > 0.9
-            T(PREV, i) = 300;
-        elseif relative_pos > 0.5
-            T(PREV, i) = 1500 - 1200*(relative_pos-0.5)/0.4;
-        else
-            T(PREV, i) = 1500.0;
-        end
-		
-		if relative_pos < 0.75
-			Y(PREV, speciesIndex(gas, 'CH4'), i) = (0.75-relative_pos)/0.75;
-		end
-		
-		if relative_pos > 0.25
-			Y(PREV, speciesIndex(gas, 'O2'), i) = massFraction(oxidizer, 'O2') * (relative_pos-0.25)/0.75;
-			Y(PREV, speciesIndex(gas, 'N2'), i) = massFraction(oxidizer, 'N2') * (relative_pos-0.25)/0.75;
-		end
-    end
+    
+    write_data(0, PREV);
 end
 
 %==================================Loop=================================
