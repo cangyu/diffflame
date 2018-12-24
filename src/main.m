@@ -120,17 +120,13 @@ while(err > 1e-3)
     %% Calc physical properties
     for i = 1:N
         local_T = T(PREV, i);
-        
         set(gas, 'T', local_T, 'P', P, 'Y', squeeze(Y(PREV, :, i)));
-        
         mu(i) = viscosity(gas);
         lambda(i) = thermalConductivity(gas);
         cp(i) = cp_mass(gas);
         D(:, i) = mixDiffCoeffs(gas);
-        
         w = netProdRates(gas); % kmol / (m^3 * s)
-        h = enthalpies_RT(gas) * local_T * gasconstant; % J/Kmol                                              
-       
+        h = enthalpies_RT(gas) * local_T * gasconstant; % J/Kmol       
         RS(i) = -dot(w, h); % J / (m^3 * s)
         RR(:, i) = w.* MW; % Kg / (m^3 * s)
     end
@@ -228,7 +224,6 @@ while(err > 1e-3)
         else
             cr = 0.0; cm = 1.0; cl = -1.0;
         end
-        
         coef(i, i-1) = rho(PREV, i)*u(PREV, i)*cl/dz - mu(i)/dz2;
         coef(i, i) = rho(PREV, i)*u(PREV, i)*cm/dz + rho(PREV, i)*V(PREV, i) + 2*mu(i)/dz2;
         coef(i, i+1) = rho(PREV, i)*u(PREV, i)*cr/dz - mu(i)/dz2;
@@ -277,7 +272,7 @@ while(err > 1e-3)
     dt_cfl = CFL * dz / max(abs(u(CUR, :)));
     report(2, sprintf('Time step given by CFL condition: %es', dt_cfl));
         
-        %% Solve T
+	%% Solve T
     report(2, 'Solving T equation ...');
     temp_iter_cnt = 0;
     ok = false;
@@ -349,7 +344,7 @@ while(err > 1e-3)
         mrcT = max(relative_change_of_T);
         
         %Check convergence
-        if temp_iter_cnt > 100
+        if temp_iter_cnt > 50
             ok = true;
         else
             ok = mrcT < 2e-4;
@@ -451,7 +446,7 @@ while(err > 1e-3)
             cur_mrcr = errY/ (max(Y(PREV, k, 2:N-1)) + 1e-60);
             
             %Check convergence
-            if y_iter_cnt > 200
+            if y_iter_cnt > 100
                 ok = true;
             elseif cur_mrcr >= prev_mrcr
                 ok = true;
