@@ -66,9 +66,13 @@ cl = 0.0; %Upwind coef for i-1
 iter_cnt = 0;
 
 %=============================Init========================================
-if exist('data.txt','file')
+if exist('../data/iter0.txt','file')
+    eitr = 0;
+    while exist(sprintf('../data/iter%d.txt', eitr),'file')
+        eitr = eitr + 1;
+    end
     report(0, 'Loading existing data ...');
-    fin = fopen('data.txt', 'r');
+    fin = fopen(sprintf('../data/iter%d.txt', eitr-1), 'r');
     iter_cnt = fscanf(fin, '%d', [1 1]);
     data_set = fscanf(fin, '%e', [6+K N]);
     rho(PREV, :) = data_set(1, :);
@@ -212,7 +216,7 @@ while(err > 1e-3)
     xlabel('z / m')
     ylabel('Kg\cdotm^{-3}\cdots^{-1}')
     
-    fpic = sprintf('../pic/Iteration_%d.png', iter_cnt);
+    fpic = sprintf('../pic/iter%d.png', iter_cnt);
     saveas(h, fpic);
     
     %% Solve V
@@ -273,12 +277,110 @@ while(err > 1e-3)
     dt_cfl = CFL * dz / max(abs(u(CUR, :)));
     report(2, sprintf('Time step given by CFL condition: %es', dt_cfl));
         
+        %% Solve T
+    report(2, 'Solving T equation ...');
+    temp_iter_cnt = 0;
+    ok = false;
+    while(~ok)
+        temp_iter_cnt = temp_iter_cnt + 1;
+        
+        %Compute energy source term
+        for i = 2 : N-1
+            local_T = T(PREV, i);
+            set(gas, 'T', local_T, 'P', P, 'Y', squeeze(Y(PREV, :, i)));
+            lambda(i) = thermalConductivity(gas);
+            cp(i) = cp_mass(gas);
+            D(:, i) = mixDiffCoeffs(gas);
+            w = netProdRates(gas); % kmol / (m^3 * s)
+            h = enthalpies_RT(gas) * local_T * gasconstant; % J/Kmol
+            RS(i) = -dot(w, h); % J / (m^3 * s)
+        end
+        dYdz = zeros(K, N);
+        for k = 1:K
+            dYdz(k, :) = df(Y(PREV, k, :), dz, N);
+        end
+        SpecDiffTerm = zeros(N, 1);
+        for i = 2:N-1
+            SpecDiffTerm(i) = rho(PREV, i) * cp(i) * dot(D(:, i), dYdz(:, i));
+        end
+        
+        %Choose proper time step
+        dt = dt_cfl;
+        for i = 2:N-1
+            dt_chem = rho(PREV, i)*cp(i)*max_dT/(abs(RS(i))+1e-20);
+            dt = min(dt, dt_chem);
+        end
+        
+        %Construct the coefficient matrix
+        coef = zeros(N, N);
+        for i = 2 : N-1
+            % Upwind
+            if u(PREV, i) < 0
+                cr = 1.0; cm = -1.0; cl = 0.0;
+            else
+                cr = 0.0; cm = 1.0; cl = -1.0;
+            end
+            coef(i, i-1) = rho(PREV, i)*cp(i)*u(CUR, i)*cl*dt/dz - lambda(i)*dt/dz2 - SpecDiffTerm(i)*cl*dt/dz;
+            coef(i, i) = rho(PREV, i)*cp(i)*(1+u(CUR, i)*cm*dt/dz) + 2*lambda(i)*dt/dz2 - SpecDiffTerm(i)*cm*dt/dz;
+            coef(i, i+1) = rho(PREV, i)*cp(i)*u(CUR, i)*cr*dt/dz - lambda(i)*dt/dz2 - SpecDiffTerm(i)*cr*dt/dz;
+        end
+        A = coef(2:N-1, 2:N-1);
+        
+        %Construct the RHS
+        rhs = zeros(N, 1);
+        for i = 2 : N-1
+            rhs(i) = rho(PREV, i)*cp(i)*T(PREV, i)+dt*RS(i);
+        end
+        b = rhs(2:N-1);
+        b(1) = b(1) - coef(2, 1) * T(PREV, 1);
+        b(N-2) = b(N-2) - coef(N-1, N) * T(PREV, N);
+        
+        %Solve
+        x = solTriDiag(A, b);
+        
+        %Calc error
+        change_of_T = abs(x - squeeze(T(PREV, 2:N-1))');
+        macT = max(change_of_T);
+        relative_change_of_T = zeros(N-2, 1);
+        for i = 2:N-1
+            idx = i-1;
+            relative_change_of_T(idx) = change_of_T(idx) / T(PREV, i);
+        end
+        mrcT = max(relative_change_of_T);
+        
+        %Check convergence
+        if temp_iter_cnt > 100
+            ok = true;
+        else
+            ok = mrcT < 2e-4;
+        end
+        report(3, sprintf('Time step=%es, MaxAbsChange=%eK, MaxRelChange=%e', dt, macT, mrcT));
+        
+        %Check constraint: no less than 300, no greater than 3000
+        for i = 2:N-1
+            idx = i - 1;
+            if x(idx) < 300.0
+                x(idx) = 300.0;
+            end
+            if x(idx) > 3000.0
+                x(idx) = 3000.0;
+            end
+        end
+        
+        %Next round
+        T(PREV, 2:N-1) = x(:);
+    end
+    
+    %Update
+    report(3, sprintf('Converges after %d iterations!', temp_iter_cnt));
+    T(CUR, :) = T(PREV, :);
+    
     %% Sovle Y
     report(2, 'Solving Y equations ...');
     
     %Update diffusion coefficients and RR
     for i = 1:N
-        local_T = T(PREV, i);
+        local_T = T(CUR, i);
         set(gas, 'T', local_T, 'P', P, 'Y', squeeze(Y(PREV, :, i)));
         D(:, i) = mixDiffCoeffs(gas);    
         w = netProdRates(gas); % kmol / (m^3 * s)
@@ -294,12 +396,11 @@ while(err > 1e-3)
         
         ok = false;
         y_iter_cnt = 0;
-        prev_mrcr = 1e20;
+        prev_mrcr = 1e100;
         while(~ok)
             y_iter_cnt = y_iter_cnt + 1;
             
             %Choose proper time step
-            %according to the max allowable change of Y_k
             dt = dt_cfl;
             for i = 2:N-1
                 dt_chem = rho(PREV, i)*max_dY(k)/(abs(RR(k, i))+1e-80);
@@ -334,28 +435,6 @@ while(err > 1e-3)
             %Solve
             x = solTriDiag(A, b);
             
-            %Stat err
-            errY = max(abs(squeeze(Y(PREV, k, 2:N-1)) - x));
-            rcr = zeros(N-2, 1);
-            for i = 2:N-1
-                idx = i-1;
-                delta_Y = abs(x(idx)-Y(PREV, k, i));
-                local_Y = max(Y(PREV, k, i), 1e-20);
-                rcr(idx) = delta_Y / local_Y;
-            end
-            cur_mrcr = max(rcr);
-            
-            %Check convergence
-            if y_iter_cnt > 1000
-                ok = true;
-            elseif y_iter_cnt > 1 && cur_mrcr >= prev_mrcr
-                ok = true;
-            else
-                ok = cur_mrcr < 1e-2;
-            end
-            prev_mrcr = cur_mrcr;
-            report(3, sprintf('(%d/%d)%s: dY_max=%e, Time step=%es, MaxAbsChange=%e, MaxRelChange=%e',k, K, NAME{1, k}, max_dY(k), dt, errY, cur_mrcr));
-            
             %Check constraints: no less than 0, no greater than 1.0
             for i = 2:N-1
                 idx = i-1;
@@ -367,6 +446,21 @@ while(err > 1e-3)
                 end
             end
             
+            %Stat err
+            errY = max(abs(squeeze(Y(PREV, k, 2:N-1)) - x));
+            cur_mrcr = errY/ (max(Y(PREV, k, 2:N-1)) + 1e-60);
+            
+            %Check convergence
+            if y_iter_cnt > 200
+                ok = true;
+            elseif cur_mrcr >= prev_mrcr
+                ok = true;
+            else
+                ok = cur_mrcr < 5e-3;
+            end
+            prev_mrcr = cur_mrcr;
+            report(3, sprintf('(%d/%d)%s: dY_max=%e, Time step=%es, MaxAbsChange=%e, MaxRelChange=%e',k, K, NAME{1, k}, max_dY(k), dt, errY, cur_mrcr));
+
             %Next round
             Y(PREV, k, 2:N-1) = x(:);
         end
@@ -382,118 +476,9 @@ while(err > 1e-3)
     end
     
     %% Update density
-    for i = 2:N-1
-        rho(PREV, i) = P / (gasconstant * T(PREV, i) * sum(squeeze(Y(CUR, :, i)) ./ MW'));
-        
-        %Ensure positivity
-        if rho(PREV, i) < 0
-            rho(PREV, i) = 0.0;
-        end
-    end
-    
-    %% Solve T
-    report(2, 'Solving T equation ...');
-    temp_iter_cnt = 0;
-    ok = false;
-    while(~ok)
-        temp_iter_cnt = temp_iter_cnt + 1;
-        
-        %Compute energy source term
-        for i = 2 : N-1
-            local_T = T(PREV, i);
-            set(gas, 'T', local_T, 'P', P, 'Y', squeeze(Y(CUR, :, i)));
-            w = netProdRates(gas); % kmol / (m^3 * s)
-            h = enthalpies_RT(gas) * local_T * gasconstant; % J/Kmol
-            RS(i) = -dot(w, h); % J / (m^3 * s)
-        end
-        
-        %Choose proper time step
-        dt = dt_cfl;
-        for i = 2:N-1
-            dt_chem = rho(PREV, i)*cp(i)*max_dT/(abs(RS(i))+1e-20);
-            dt = min(dt, dt_chem);
-        end
-        
-        %Construct the coefficient matrix
-        coef = zeros(N, N);
-        for i = 2 : N-1
-            % Upwind
-            if u(PREV, i) < 0
-                cr = 1.0; cm = -1.0; cl = 0.0;
-            else
-                cr = 0.0; cm = 1.0; cl = -1.0;
-            end
-            coef(i, i-1) = rho(PREV, i)*cp(i)*u(CUR, i)*cl*dt/dz - lambda(i)*dt/dz2;
-            coef(i, i) = rho(PREV, i)*cp(i)*(1+u(CUR, i)*cm*dt/dz) + 2*lambda(i)*dt/dz2;
-            coef(i, i+1) = rho(PREV, i)*cp(i)*u(CUR, i)*cr*dt/dz - lambda(i)*dt/dz2;
-        end
-        A = coef(2:N-1, 2:N-1);
-        
-        %Construct the RHS
-        rhs = zeros(N, 1);
-        for i = 2 : N-1
-            rhs(i) = rho(PREV, i)*cp(i)*T(PREV, i)+dt*RS(i);
-        end
-        b = rhs(2:N-1);
-        b(1) = b(1) - coef(2, 1) * T(PREV, 1);
-        b(N-2) = b(N-2) - coef(N-1, N) * T(PREV, N);
-        
-        %Solve
-        x = solTriDiag(A, b);
-        
-        %Calc error
-        change_of_T = abs(x - squeeze(T(PREV, 2:N-1))');
-        macT = max(change_of_T);
-        
-        relative_change_of_T = zeros(N-2, 1);
-        for i = 2:N-1
-            idx = i-1;
-            relative_change_of_T(idx) = change_of_T(idx) / T(PREV, i);
-        end
-        mrcT = max(relative_change_of_T);
-        
-        %Check convergence
-        if iter_cnt == 1
-            ok =  macT< 10.0;
-        elseif iter_cnt == 2
-            ok = mrcT < 1e-3;
-        else
-            if temp_iter_cnt > 500
-                ok = true;
-            else
-                ok = mrcT < 1e-4;
-            end
-        end
-        report(3, sprintf('Time step=%es, MaxAbsChange=%eK, MaxRelChange=%e', dt, macT, mrcT));
-        
-        %Check constraint: no less than 300, no greater than 3000
-        for i = 2:N-1
-            idx = i - 1;
-            if x(idx) < 300.0
-                x(idx) = 300.0;
-            end
-            if x(idx) > 3000.0
-                x(idx) = 3000.0;
-            end
-        end
-        
-        %Next round
-        T(PREV, 2:N-1) = x(:);
-    end
-    
-    %Update
-    report(3, sprintf('Converges after %d iterations!', temp_iter_cnt));
-    T(CUR, :) = T(PREV, :);
-    
-    %% Update density
     rho(CUR, 1) = rho(PREV, 1);
     for i = 2:N-1
         rho(CUR, i) = P / (gasconstant * T(CUR, i) * sum(squeeze(Y(CUR, :, i)) ./ MW'));
-        
-        %Ensure positivity
-        if rho(CUR, i) < 0
-            rho(CUR, i) = 0.0;
-        end
     end
     rho(CUR, N) = rho(PREV, N);
     
@@ -529,7 +514,7 @@ function write_data(iter, idx)
     global T
     global Y
     
-    fout = fopen('data.txt', 'w');
+    fout = fopen(sprintf('../data/iter%d.txt', iter), 'w');
     fprintf(fout, '%d\n', iter);
     for i = 1:N
         fprintf(fout, '%24.6e', rho(idx, i));
