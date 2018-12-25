@@ -29,9 +29,9 @@ S = 1.0; %Cross area, m^2
 uL = mdot_L / rhoL / S; %Velocity at left entrance, m/s 
 uR = mdot_R / rhoR / S; %Velocity at right entrance, m/s
 
-N = 2001; %Total num of grid points
-zL = -0.01; %Position of left endpoint, m
-zR = 0.01; %Position of right endpoint, m
+N = 5001; %Total num of grid points
+zL = -0.025; %Position of left endpoint, m
+zR = 0.025; %Position of right endpoint, m
 L = zR - zL; %Length of domain, m
 z = linspace(zL, zR, N); %Coordinates for each point, m
 dz = z(2)-z(1); %The uniform gap, m
@@ -67,13 +67,12 @@ iter_cnt = 0;
 
 %=============================Init========================================
 if exist('../data/iter0.txt','file')
-    eitr = 0;
-    while exist(sprintf('../data/iter%d.txt', eitr),'file')
-        eitr = eitr + 1;
+    while exist(sprintf('../data/iter%d.txt', iter_cnt),'file')
+        iter_cnt = iter_cnt + 1;
     end
+    iter_cnt = iter_cnt - 1;
     report(0, 'Loading existing data ...');
-    fin = fopen(sprintf('../data/iter%d.txt', eitr-1), 'r');
-    iter_cnt = fscanf(fin, '%d', [1 1]);
+    fin = fopen(sprintf('../data/iter%d.txt', iter_cnt), 'r');
     data_set = fscanf(fin, '%e', [6+K N]);
     rho(PREV, :) = data_set(1, :);
     u(PREV, :) = data_set(2, :);
@@ -85,7 +84,6 @@ if exist('../data/iter0.txt','file')
         Y(PREV, k, :) = data_set(6+k, :);
     end
     fclose(fin);
-    report(0, 'Done!');
 else
     report(0, 'Initializing ...');
     [zc, uc, Tc,  Yc] = DiffFlameSim(L, P, 300.0, mdot_L, -mdot_R);
@@ -229,7 +227,6 @@ while(err > 1e-3)
         coef(i, i+1) = rho(PREV, i)*u(PREV, i)*cr/dz - mu(i)/dz2;
     end
     rhs = -Nbla(PREV)*ones(N, 1);
-    
     A = coef(2:N-1, 2:N-1);
     b = rhs(2:N-1);
     b(1) = b(1) - coef(2, 1) * V(PREV, 1);
@@ -272,7 +269,7 @@ while(err > 1e-3)
     dt_cfl = CFL * dz / max(abs(u(CUR, :)));
     report(2, sprintf('Time step given by CFL condition: %es', dt_cfl));
         
-	%% Solve T
+    %% Solve T
     report(2, 'Solving T equation ...');
     temp_iter_cnt = 0;
     ok = false;
@@ -290,6 +287,9 @@ while(err > 1e-3)
             h = enthalpies_RT(gas) * local_T * gasconstant; % J/Kmol
             RS(i) = -dot(w, h); % J / (m^3 * s)
         end
+        %Filtering
+        %TODO
+        
         dYdz = zeros(K, N);
         for k = 1:K
             dYdz(k, :) = df(Y(PREV, k, :), dz, N);
@@ -411,7 +411,6 @@ while(err > 1e-3)
                 else
                     cr = 0.0; cm = 1.0; cl = -1.0;
                 end
-                
                 coef(i, i-1) = rho(PREV, i)*(u(CUR, i)*cl*dt/dz-D(k, i)*dt/dz2);
                 coef(i, i) = rho(PREV, i)*(1+2*D(k, i)*dt/dz2+u(CUR, i)*cm*dt/dz);
                 coef(i, i+1) = rho(PREV, i)*(u(CUR, i)*cr*dt/dz-D(k, i)*dt/dz2);
@@ -510,7 +509,6 @@ function write_data(iter, idx)
     global Y
     
     fout = fopen(sprintf('../data/iter%d.txt', iter), 'w');
-    fprintf(fout, '%d\n', iter);
     for i = 1:N
         fprintf(fout, '%24.6e', rho(idx, i));
         fprintf(fout, '%24.6e', u(idx, i));
@@ -523,6 +521,5 @@ function write_data(iter, idx)
         end
         fprintf(fout, '\n');
     end
-    
     fclose(fout);
 end
