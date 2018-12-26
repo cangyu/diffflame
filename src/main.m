@@ -107,6 +107,13 @@ else
     write_data(0, PREV);
 end
 
+rho(CUR, :) = rho(PREV, :);
+u(CUR, :) = u(PREV, :);
+V(CUR, :) = V(PREV, :);
+Nbla(CUR) = Nbla(PREV);
+T(CUR, :) = T(PREV, :);
+Y(CUR, :, :) = Y(PREV, :, :);
+
 %==================================Loop=================================
 report(0, 'Main program running ...');
 err = 1.0;
