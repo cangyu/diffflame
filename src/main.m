@@ -468,7 +468,7 @@ while(err > 1e-3)
         
         %Update
         report(4, sprintf('Converges after %d iterations!', y_iter_cnt));
-        Y(CUR, k, :) = Y(PREV, k, :);
+        Y(CUR, k, :) = relaxation(Y(PREV, k, :), Y(CUR, k, :), 0.5);
     end
     
     %Normalization
