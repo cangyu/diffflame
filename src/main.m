@@ -45,7 +45,7 @@ u = zeros(2, N); % m/s
 V = zeros(2, N);
 Nbla = zeros(2, 1); %The eigenvalue
 T = zeros(2, N); % K
-Y = zeros(2, K, N);
+Y = zeros(2, K, N); %Mass fraction
 
 mu = zeros(1, N); %Viscosity, Pa * s = Kg / (m * s)
 cp = zeros(1, N); %Specific heat, J / (Kg * K)
