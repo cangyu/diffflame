@@ -1,9 +1,21 @@
 clear all; close all; clc;
 % Iterate seperately to solve the counter-flow diffusion flame 
 
+diary('log.txt');
+diary on;
+
 fuel = Methane();
 oxidizer = Air();
 gas = GRI30('Mix');
+
+ch4_idx = speciesIndex(gas, 'CH4');
+o2_idx = speciesIndex(gas, 'O2');
+n2_idx = speciesIndex(gas, 'N2');
+co2_idx = speciesIndex(gas, 'CO2');
+h2o_idx = speciesIndex(gas, 'H2O');
+h2_idx = speciesIndex(gas, 'H2');
+co_idx = speciesIndex(gas, 'CO');
+no_idx = speciesIndex(gas, 'NO');
 
 global K;
 global N;
@@ -65,6 +77,7 @@ cm = 0.0; %Upwind coef for i
 cl = 0.0; %Upwind coef for i-1
 
 iter_cnt = 0;
+err = 1.0;
 
 %=============================Init========================================
 filefolder = fullfile('../data');
@@ -126,8 +139,6 @@ Y(CUR, :, :) = Y(PREV, :, :);
 
 %==================================Loop=================================
 report(0, 'Main program running ...');
-err = 1.0;
-
 while(err > 1e-3)
     iter_cnt = iter_cnt + 1;
     report(1, sprintf('Iteration %d:', iter_cnt));
@@ -401,9 +412,9 @@ while(err > 1e-3)
     
     %Solve each species
     for k=1:K
-        max_dY(k) = 1e-2 * max(Y(PREV, k, :));
+        max_dY(k) = 1e-3 * max(Y(PREV, k, :));
         if max_dY(k) < 1e-10
-            max_dY(k) = 1e-6;
+            max_dY(k) = 1e-10;
         end
         
         ok = false;
@@ -467,7 +478,7 @@ while(err > 1e-3)
             elseif cur_mrcr >= prev_mrcr
                 ok = true;
             else
-                ok = cur_mrcr < 5e-3;
+                ok = cur_mrcr < 1e-3;
             end
             prev_mrcr = cur_mrcr;
             report(3, sprintf('(%d/%d)%s: dY_max=%e, Time step=%es, MaxAbsChange=%e, MaxRelChange=%e',k, K, NAME{1, k}, max_dY(k), dt, errY, cur_mrcr));
@@ -502,6 +513,42 @@ while(err > 1e-3)
     CUR = 3 - CUR;
 end
 report(0, sprintf('Main program converges after %d iterations!', iter_cnt));
+diary off;
+
+%% Transform to Z space and output
+MixFrac = zeros(N, 1);
+for i = 1:N
+   MixFrac(i) = calcZ(Y(CUR, ch4_idx, i), Y(CUR, o2_idx, i));
+end
+dMixFrac = df(MixFrac, dz, N);
+
+DiffCoef = zeros(N, 1);
+for i = 1:N
+    DiffCoef(i) = 0.33 * D(ch4_idx, i) + 0.14 * D(o2_idx, i) + 0.52 * D(n2_idx, i); 
+end
+
+kai = zeros(N, 1);
+for i = 1:N
+    kai(i) = 2.0 * DiffCoef(i) * dMixFrac(i)^2;
+end
+
+fout = fopen(sprintf('../data/ChemTbl.txt'), 'w');
+fprintf(fout, '%18s\t%18s\t%18s\t%18s\t%18s\t%18s\t%18s\t%18s\t%18s\t%18s\t%18s\n', ...
+    'D', 'kai', 'Z', 'dZ', 'Y_CH4', 'Y_CO', 'Y_H2', 'Y_H2O', 'Y_CO2', 'T', 'Y_NO');
+for j = 1:N
+    fprintf(fout, '%18.8e\t', DiffCoef(j));
+    fprintf(fout, '%18.8e\t', kai(j));
+    fprintf(fout, '%18.8e\t', MixFrac(j));
+	fprintf(fout, '%18.8e\t', dMixFrac(j));
+    fprintf(fout, '%18.8e\t', Y(CUR, ch4_idx, j));
+    fprintf(fout, '%18.8e\t', Y(CUR, co_idx, j));
+    fprintf(fout, '%18.8e\t', Y(CUR, h2_idx, j));
+    fprintf(fout, '%18.8e\t', Y(CUR, h2o_idx, j));
+    fprintf(fout, '%18.8e\t', Y(CUR, co2_idx, j));
+    fprintf(fout, '%18.8e\t', T(CUR, j));
+    fprintf(fout, '%18.8e\n', Y(CUR, no_idx, j));
+end
+fclose(fout);
 
 %=================================Helpers================================
 function report(level, msg)
@@ -539,4 +586,51 @@ function write_data(iter, idx)
         fprintf(fout, '\n');
     end
     fclose(fout);
+end
+
+function ret = calcZ(Yf, Yo)
+    s = 4;
+    % 空气中氧化剂质量分数
+    Yo_0 = 0.232;
+    % 燃料中燃料质量分数
+    Yf_0 = 1.0;
+    % 混合分数
+    ret = (s*Yf-Yo+Yo_0)/(s*Yf_0+Yo_0);
+    if (ret < 0)
+        ret = 0.0;
+    end
+end
+
+function x = solTriDiag(B, b)
+    [n, ~] = size(B);
+    A = spdiags(spdiags(B, -1:1), -1:1, n, n);
+    x = A\b;
+end
+
+function ret = relaxation(a, b, alpha)
+    ret = (1-alpha) * a + alpha * b;
+end
+
+function ret = df(f, dx, N)
+    ret = zeros(1, N);
+    
+    ret(1) = f(2) - f(1);
+    for i = 2 : N-1
+        ret(i) = (f(i+1) - f(i-1))/2;
+    end
+    ret(N) = f(N) - f(N-1);
+    
+    ret = ret / dx;
+end
+
+function ret = ddf(f, dx, N)
+    ret = zeros(1, N);
+    
+    ret(1) = f(3) - 2*f(2) + f(1);
+    for i = 2 : N-1
+        ret(i) = f(i+1) - 2*f(i) + f(i-1);
+    end
+    ret(N) = f(N-2) - 2*f(N-1) + f(N);
+    
+    ret = ret / dx^2;
 end
