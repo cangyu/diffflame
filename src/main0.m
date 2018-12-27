@@ -515,7 +515,8 @@ end
 report(0, sprintf('Main program converges after %d iterations!', iter_cnt));
 diary off;
 
-%% Transform to Z space and output
+%==================Transform to Z space and output============================
+report(0, 'Transforming to Z space ...');
 MixFrac = zeros(N, 1);
 for i = 1:N
    MixFrac(i) = calcZ(Y(CUR, ch4_idx, i), Y(CUR, o2_idx, i));
@@ -549,6 +550,7 @@ for j = 1:N
     fprintf(fout, '%18.8e\n', Y(CUR, no_idx, j));
 end
 fclose(fout);
+report(0, 'Done!');
 
 %=================================Helpers================================
 function report(level, msg)
