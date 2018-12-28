@@ -1,7 +1,7 @@
 clear all; close all; clc;
 % Iterate seperately to solve the counter-flow diffusion flame 
 
-diary('log.txt');
+diary('../data/log.txt');
 diary on;
 
 fuel = Methane();
@@ -34,17 +34,16 @@ NAME = speciesNames(gas); %Name of each species
 K = nSpecies(gas); %Total num of species
 
 P = oneatm; %The constant pressure, Pa
-mdot_L = 1.0/100 ; %Fuel stream, Kg/s
-mdot_R = -16.6/100; %Air stream, Kg/s
+mdot_L = 0.01/3 ; %Fuel stream, Kg/(m^2 s)
+mdot_R = -0.01; %Air stream, Kg/(m^2 s)
 rhoL = 0.716; %Density of CH4, Kg/m^3
 rhoR = 1.3947; %Density of Air, Kg/m^3
-S = 1.0; %Cross area, m^2
-uL = mdot_L / rhoL / S; %Velocity at left entrance, m/s 
-uR = mdot_R / rhoR / S; %Velocity at right entrance, m/s
+uL = mdot_L / rhoL; %Velocity at left entrance, m/s 
+uR = mdot_R / rhoR; %Velocity at right entrance, m/s
 
-N = 5001; %Total num of grid points
-zL = -0.025; %Position of left endpoint, m
-zR = 0.025; %Position of right endpoint, m
+N = 4001; %Total num of grid points
+zL = -0.04; %Position of left endpoint, m
+zR = 0.04; %Position of right endpoint, m
 L = zR - zL; %Length of domain, m
 z = linspace(zL, zR, N); %Coordinates for each point, m
 dz = z(2)-z(1); %The uniform gap, m
@@ -159,7 +158,7 @@ while(err > 1e-3)
     
     %% Plot
     h = figure(1);
-    set(h, 'position', get(0,'ScreenSize'));
+    %set(h, 'position', get(0,'ScreenSize'));
     subplot(3, 6, 1)
     plot(z, T(PREV, :))
     title('$$T$$','Interpreter','latex');
