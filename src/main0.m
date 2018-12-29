@@ -1,9 +1,6 @@
 clear all; close all; clc;
 % Iterate seperately to solve the counter-flow diffusion flame 
 
-diary('../data/log.txt');
-diary on;
-
 fuel = Methane();
 oxidizer = Air();
 gas = GRI30('Mix');
@@ -34,16 +31,16 @@ NAME = speciesNames(gas); %Name of each species
 K = nSpecies(gas); %Total num of species
 
 P = oneatm; %The constant pressure, Pa
-mdot_L = 0.01/3 ; %Fuel stream, Kg/(m^2 s)
-mdot_R = -0.01; %Air stream, Kg/(m^2 s)
+mdot_L = 0.01 ; %Fuel stream, Kg/(m^2 * s)
+mdot_R = -0.03; %Air stream, Kg/(m^2 * s)
 rhoL = 0.716; %Density of CH4, Kg/m^3
 rhoR = 1.3947; %Density of Air, Kg/m^3
 uL = mdot_L / rhoL; %Velocity at left entrance, m/s 
 uR = mdot_R / rhoR; %Velocity at right entrance, m/s
 
-N = 4001; %Total num of grid points
-zL = -0.04; %Position of left endpoint, m
-zR = 0.04; %Position of right endpoint, m
+N = 2501; %Total num of grid points
+zL = -0.025; %Position of left endpoint, m
+zR = 0.025; %Position of right endpoint, m
 L = zR - zL; %Length of domain, m
 z = linspace(zL, zR, N); %Coordinates for each point, m
 dz = z(2)-z(1); %The uniform gap, m
@@ -158,7 +155,7 @@ while(err > 1e-3)
     
     %% Plot
     h = figure(1);
-    %set(h, 'position', get(0,'ScreenSize'));
+    set(h, 'position', get(0,'ScreenSize'));
     subplot(3, 6, 1)
     plot(z, T(PREV, :))
     title('$$T$$','Interpreter','latex');
@@ -512,7 +509,6 @@ while(err > 1e-3)
     CUR = 3 - CUR;
 end
 report(0, sprintf('Main program converges after %d iterations!', iter_cnt));
-diary off;
 
 %==================Transform to Z space and output============================
 report(0, 'Transforming to Z space ...');
@@ -591,12 +587,9 @@ end
 
 function ret = calcZ(Yf, Yo)
     s = 4;
-    % 空气中氧化剂质量分数
-    Yo_0 = 0.232;
-    % 燃料中燃料质量分数
-    Yf_0 = 1.0;
-    % 混合分数
-    ret = (s*Yf-Yo+Yo_0)/(s*Yf_0+Yo_0);
+    Yo_0 = 0.232;% 空气中氧化剂质量分数    
+    Yf_0 = 1.0;% 燃料中燃料质量分数
+    ret = (s*Yf-Yo+Yo_0)/(s*Yf_0+Yo_0);% 混合分数
     if (ret < 0)
         ret = 0.0;
     end
@@ -634,4 +627,56 @@ function ret = ddf(f, dx, N)
     ret(N) = f(N-2) - 2*f(N-1) + f(N);
     
     ret = ret / dx^2;
+end
+
+function [z, u, T, y] = DiffFlameSim(domain_length, p, tin, mdot_f, mdot_o)
+    runtime = cputime;  % Record the starting time
+
+    initial_grid = domain_length*[0.0 0.2 0.4 0.6 0.8 1.0];  % Units: m
+    tol_ss    = [1.0e-5 1.0e-9];        % [rtol atol] for steady-state problem
+    tol_ts    = [1.0e-3 1.0e-9];        % [rtol atol] for time stepping
+    loglevel  = 1;                      % Amount of diagnostic output (0 to 5)
+    refine_grid = 1;                    % 1 to enable refinement, 0 to disable
+
+    fuel = GRI30('Mix');
+    ox = GRI30('Mix');
+    oxcomp     =  'O2:0.21, N2:0.78';   % Air composition
+    fuelcomp   =  'CH4:1';             % Fuel composition
+
+    set(fuel,'T', tin, 'P', p, 'X', fuelcomp);
+    set(ox,'T',tin,'P',p,'X', oxcomp);
+
+    f = AxisymmetricFlow(fuel,'flow');
+    set(f, 'P', p, 'grid', initial_grid);
+    set(f, 'tol', tol_ss, 'tol-time', tol_ts);
+
+    % Set the oxidizer inlet.
+    inlet_o = Inlet('air_inlet');
+    set(inlet_o, 'T', tin, 'MassFlux', mdot_o, 'X', oxcomp);
+
+    % Set the fuel inlet.
+    inlet_f = Inlet('fuel_inlet');
+    set(inlet_f, 'T', tin, 'MassFlux', mdot_f, 'X', fuelcomp);
+
+    fl = CounterFlowDiffusionFlame(inlet_f, f, inlet_o, fuel, ox, 'O2');
+
+    solve(fl, loglevel, 0);
+
+    enableEnergy(f);
+    setRefineCriteria(fl, 2, 200.0, 0.1, 0.2);
+    solve(fl, loglevel, refine_grid);
+    saveSoln(fl,'ch4.xml','energy',['solution with energy equation']);
+    
+    writeStats(fl);
+    elapsed = cputime - runtime;
+    fprintf('Elapsed CPU time: %10.4g\n',elapsed);
+
+    z = grid(fl, 'flow'); % Get grid points of flow
+    spec = speciesNames(fuel); % Get species names in gas
+    u = solution(fl, 'flow', 'u'); 
+    T = solution(fl, 'flow', 'T'); % Get temperature solution
+    y = zeros(length(spec), length(z));
+    for i = 1:length(spec)
+        y(i,:) = solution(fl, 'flow', spec{i}); % Get mass fraction of all species from solution
+    end
 end
