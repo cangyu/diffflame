@@ -2,7 +2,7 @@ clear; close all; clc;
 
 mkdir '../data' 'ChemTbl'
 
-data = xlsread('../data/task.xlsx');
+data = load('../data/task.txt');
 for k = 1:length(data) 
     %Clean environment
     delete('../data/*.txt');

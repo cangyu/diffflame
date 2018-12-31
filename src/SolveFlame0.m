@@ -539,6 +539,7 @@ function SolveFlame0(mdot_f, mdot_o, L, N, ChemTbl_DIR)
     
     %% Task Done
     report(0, 'Done!');
+	delete('*.xml');
 end
 
 %=================================Helpers================================
