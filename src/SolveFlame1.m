@@ -516,6 +516,12 @@ function SolveFlame1(mdot_f, mdot_o, L, N, ChemTbl_DIR)
 
     %==================Transform to Z space and output============================
     report(0, 'Transforming to Z space ...');
+	for i = 1:N
+		local_T = T(CUR, i);
+		set(gas, 'T', local_T, 'P', P, 'Y', squeeze(Y(CUR, :, i)));
+		D(:, i) = mixDiffCoeffs(gas);
+	end
+	
     MixFrac = zeros(N, 1);
     for i = 1:N
        MixFrac(i) = calcZ(Y(CUR, ch4_idx, i), Y(CUR, o2_idx, i));
