@@ -532,7 +532,7 @@ function SolveFlame1(mdot_f, mdot_o, L, N, ChemTbl_DIR)
         kai(i) = 2.0 * DiffCoef(i) * dMixFrac(i)^2;
     end
 
-    fout = fopen(sprintf('%s/mf=%f_mo=%f_filtered.txt', ChemTbl_DIR, mdot_f, mdot_o), 'w');
+    fout = fopen(sprintf('%s/mf=%.6e_mo=%.6e_filtered.txt', ChemTbl_DIR, mdot_f, mdot_o), 'w');
     fprintf(fout, '%18s\t%18s\t%18s\t%18s\t%18s\t%18s\t%18s\t%18s\t%18s\t%18s\t%18s\n', ...
         'D', 'kai', 'Z', 'dZ', 'Y_CH4', 'Y_CO', 'Y_H2', 'Y_H2O', 'Y_CO2', 'T', 'Y_NO');
     for j = 1:N
