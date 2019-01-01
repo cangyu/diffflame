@@ -3,7 +3,9 @@ clear; close all; clc;
 mkdir '../data' 'ChemTbl'
 
 data = load('../data/task.txt');
-for k = 1:length(data) 
+n = length(data);
+
+for k = 1: min(n, 500)
     %Clean environment
     delete('../data/iter*.txt');
 	delete('../pic/*.png');
