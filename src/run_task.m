@@ -5,7 +5,7 @@ mkdir '../data' 'ChemTbl'
 data = load('../data/task.txt');
 for k = 1:length(data) 
     %Clean environment
-    delete('../data/*.txt');
+    delete('../data/iter*.txt');
 	delete('../pic/*.png');
     
     %Run case
