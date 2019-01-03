@@ -136,7 +136,8 @@ function SolveFlame1(mdot_f, mdot_o, L, N, ChemTbl_DIR)
 
         %% Plot
         h = figure(1);
-        %set(h, 'position', get(0,'ScreenSize'));
+        set(h, 'position', get(0,'ScreenSize'));
+        
         subplot(3, 6, 1)
         plot(z, T(PREV, :))
         title('$$T$$','Interpreter','latex');
@@ -220,19 +221,16 @@ function SolveFlame1(mdot_f, mdot_o, L, N, ChemTbl_DIR)
         ylabel('Kg\cdotm^{-3}\cdots^{-1}')
 
         subplot(3, 6, 16)
-        plot(z, squeeze(h2o_idx, :)))
+        plot(z, squeeze(RR(h2o_idx, :)))
         title('$$\dot{\omega}_{H_2O}$$','Interpreter','latex');
         xlabel('z / m')
         ylabel('Kg\cdotm^{-3}\cdots^{-1}')
 
         subplot(3, 6, 17)
-        plot(z, squeeze(h2_idx, :)))
+        plot(z, squeeze(RR(h2_idx, :)))
         title('$$\dot{\omega}_{H_2}$$','Interpreter','latex');
         xlabel('z / m')
         ylabel('Kg\cdotm^{-3}\cdots^{-1}')
-
-        %fpic = sprintf('../pic/iter%d.png', iter_cnt);
-        %saveas(h, fpic);
 
         %% Solve V
         coef = zeros(N, N);
