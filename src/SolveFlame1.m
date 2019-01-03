@@ -193,13 +193,13 @@ function SolveFlame1(mdot_f, mdot_o, L, N, ChemTbl_DIR)
         xlabel('z / m')
 
         subplot(3, 6, 11)
-        plot(z, squeeze(Y(PREV, n2_idx, :)))
-        title('Y_{N2}')
+        plot(z, squeeze(Y(PREV, h2_idx, :)))
+        title('Y_{H2}')
         xlabel('z / m')
 
         subplot(3, 6, 12)
-        plot(z, squeeze(Y(PREV, h2_idx, :)))
-        title('Y_{H2}')
+        plot(z, squeeze(Y(PREV, n2_idx, :)))
+        title('Y_{N2}')
         xlabel('z / m')
 
         subplot(3, 6, 13)
