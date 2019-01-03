@@ -574,9 +574,9 @@ end
 
 function ret = calcZ(Yf, Yo)
     s = 4;
-    Yo_0 = 0.232;% ¿ÕÆøÖÐÑõ»¯¼ÁÖÊÁ¿·ÖÊý    
-    Yf_0 = 1.0;% È¼ÁÏÖÐÈ¼ÁÏÖÊÁ¿·ÖÊý
-    ret = (s*Yf-Yo+Yo_0)/(s*Yf_0+Yo_0);% »ìºÏ·ÖÊý
+    Yo_0 = 0.232;% ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½    
+    Yf_0 = 1.0;% È¼ï¿½ï¿½ï¿½ï¿½È¼ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
+    ret = (s*Yf-Yo+Yo_0)/(s*Yf_0+Yo_0);% ï¿½ï¿½Ï·ï¿½ï¿½ï¿½
     if (ret < 0)
         ret = 0.0;
     end
@@ -627,8 +627,8 @@ function [z, u, T, y] = DiffFlameSim(domain_length, p, tin, mdot_f, mdot_o)
 
     fuel = GRI30('Mix');
     ox = GRI30('Mix');
-    oxcomp     =  'O2:0.21, N2:0.78';   % Air composition
-    fuelcomp   =  'CH4:1';             % Fuel composition
+    oxcomp = 'O2:0.21, N2:0.78'; % Air composition
+    fuelcomp = 'CH4:0.5, H2:0.5'; % Fuel composition
 
     set(fuel,'T', tin, 'P', p, 'X', fuelcomp);
     set(ox,'T',tin,'P',p,'X', oxcomp);
