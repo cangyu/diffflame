@@ -655,7 +655,7 @@ function [z, u, T, y] = DiffFlameSim(domain_length, p, tin, mdot_f, mdot_o)
     enableEnergy(f);
     setRefineCriteria(fl, 2, 200.0, 0.1, 0.2);
     solve(fl, loglevel, refine_grid);
-    saveSoln(fl,'ch4.xml','energy',['solution with energy equation']);
+    %saveSoln(fl,'ch4.xml','energy',['solution with energy equation']);
     
     writeStats(fl);
     elapsed = cputime - runtime;
