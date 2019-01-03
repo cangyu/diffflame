@@ -136,7 +136,7 @@ function SolveFlame1(mdot_f, mdot_o, L, N, ChemTbl_DIR)
 
         %% Plot
         h = figure(1);
-        set(h, 'position', get(0,'ScreenSize'));
+        %set(h, 'position', get(0,'ScreenSize'));
         subplot(3, 6, 1)
         plot(z, T(PREV, :))
         title('$$T$$','Interpreter','latex');
@@ -161,62 +161,78 @@ function SolveFlame1(mdot_f, mdot_o, L, N, ChemTbl_DIR)
         xlabel('z / m');
         ylabel('J\cdotm^{-3}\cdots^{-1}');
 
+        subplot(3, 6, 5)
+        plot(z, squeeze(Y(PREV, no_idx, :)))
+        title('Y_{NO}');
+        xlabel('z / m');
+
+        subplot(3, 6, 6)
+        plot(z, squeeze(Y(PREV, co_idx, :)))
+        title('Y_{CO}');
+        xlabel('z / m');
+
         subplot(3, 6, 7)
-        plot(z, squeeze(Y(PREV, speciesIndex(gas, 'CH4'), :)))
+        plot(z, squeeze(Y(PREV, ch4_idx, :)))
         title('Y_{CH4}');
         xlabel('z / m');
 
         subplot(3, 6, 8)
-        plot(z, squeeze(Y(PREV, speciesIndex(gas, 'O2'), :)))
+        plot(z, squeeze(Y(PREV, o2_idx, :)))
         title('Y_{O2}');
         xlabel('z / m');
 
         subplot(3, 6, 9)
-        plot(z, squeeze(Y(PREV, speciesIndex(gas, 'CO2'), :)))
+        plot(z, squeeze(Y(PREV, co2_idx, :)))
         title('Y_{CO2}')
         xlabel('z / m')
 
         subplot(3, 6, 10)
-        plot(z, squeeze(Y(PREV, speciesIndex(gas, 'H2O'), :)))
+        plot(z, squeeze(Y(PREV, h2o_idx, :)))
         title('Y_{H2O}')
         xlabel('z / m')
 
         subplot(3, 6, 11)
-        plot(z, squeeze(Y(PREV, speciesIndex(gas, 'N2'), :)))
+        plot(z, squeeze(Y(PREV, n2_idx, :)))
         title('Y_{N2}')
         xlabel('z / m')
 
         subplot(3, 6, 12)
-        plot(z, squeeze(Y(PREV, speciesIndex(gas, 'NO'), :)))
-        title('Y_{NO}')
+        plot(z, squeeze(Y(PREV, h2_idx, :)))
+        title('Y_{H2}')
         xlabel('z / m')
 
         subplot(3, 6, 13)
-        plot(z, squeeze(RR(speciesIndex(gas, 'CH4'), :)))
+        plot(z, squeeze(RR(ch4_idx, :)))
         title('$$\dot{\omega}_{CH_4}$$','Interpreter','latex');
         xlabel('z / m')
         ylabel('Kg\cdotm^{-3}\cdots^{-1}')
 
         subplot(3, 6, 14)
-        plot(z, squeeze(RR(speciesIndex(gas, 'O2'), :)))
+        plot(z, squeeze(RR(o2_idx, :)))
         title('$$\dot{\omega}_{O_2}$$','Interpreter','latex');
         xlabel('z / m')
         ylabel('Kg\cdotm^{-3}\cdots^{-1}')
 
         subplot(3, 6, 15)
-        plot(z, squeeze(RR(speciesIndex(gas, 'CO2'), :)))
+        plot(z, squeeze(RR(co2_idx, :)))
         title('$$\dot{\omega}_{CO_2}$$','Interpreter','latex');
         xlabel('z / m')
         ylabel('Kg\cdotm^{-3}\cdots^{-1}')
 
         subplot(3, 6, 16)
-        plot(z, squeeze(RR(speciesIndex(gas, 'H2O'), :)))
+        plot(z, squeeze(h2o_idx, :)))
         title('$$\dot{\omega}_{H_2O}$$','Interpreter','latex');
         xlabel('z / m')
         ylabel('Kg\cdotm^{-3}\cdots^{-1}')
 
-        fpic = sprintf('../pic/iter%d.png', iter_cnt);
-        saveas(h, fpic);
+        subplot(3, 6, 17)
+        plot(z, squeeze(h2_idx, :)))
+        title('$$\dot{\omega}_{H_2}$$','Interpreter','latex');
+        xlabel('z / m')
+        ylabel('Kg\cdotm^{-3}\cdots^{-1}')
+
+        %fpic = sprintf('../pic/iter%d.png', iter_cnt);
+        %saveas(h, fpic);
 
         %% Solve V
         coef = zeros(N, N);
@@ -524,7 +540,9 @@ function SolveFlame1(mdot_f, mdot_o, L, N, ChemTbl_DIR)
 	
     MixFrac = zeros(N, 1);
     for i = 1:N
-       MixFrac(i) = calcZ(Y(CUR, ch4_idx, i), Y(CUR, o2_idx, i));
+        local_yf = Y(CUR, ch4_idx, i) + Y(CUR, h2_idx, i);
+        local_yo = Y(CUR, o2_idx, i);
+        MixFrac(i) = calcZ(local_yf, local_yo);
     end
     dMixFrac = df(MixFrac, dz, N);
 
@@ -573,10 +591,10 @@ function report(level, msg)
 end
 
 function ret = calcZ(Yf, Yo)
-    s = 4;
-    Yo_0 = 0.232;% ��������������������    
-    Yf_0 = 1.0;% ȼ����ȼ����������
-    ret = (s*Yf-Yo+Yo_0)/(s*Yf_0+Yo_0);% ��Ϸ���
+    s = 40/9; %Mass ratio of oxidizer and fuel at stoichiometry
+    Yo_0 = 0.232; %Mixture fraction of oxidizer in air stream
+    Yf_0 = 1.0; %Mixture fraction of fuel in gas stream
+    ret = (s*Yf-Yo+Yo_0)/(s*Yf_0+Yo_0); %The mixture fraction
     if (ret < 0)
         ret = 0.0;
     end
