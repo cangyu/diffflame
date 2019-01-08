@@ -1,9 +1,11 @@
-function SolveFlame1(mdot_f, mdot_o, L, N, ChemTbl_DIR)
+function SolveFlame1(mdot_f, mdot_o, L, N, ChemTbl_DIR, MAX_ITER)
 %Iterate seperately to solve the counter-flow diffusion flame with filtering
 %  mdot_f: Mass flux of fuel at left side, Unit: Kg/(m^2 * s).
 %  mdot_o: Mass flux of oxidizer at right side, Unit: Kg/(m^2 * s).
 %  L: Length of domain, Unit: m.
 %  N: Total num of grid points distributed uniformly.
+%  ChemTbl_DIR: Target directory where transformed data files are stored.
+%  MAX_ITER: Maximun number of global iteration.
 
     gas = GRI30('Mix');
 
@@ -116,7 +118,7 @@ function SolveFlame1(mdot_f, mdot_o, L, N, ChemTbl_DIR)
 
     %==================================Loop=================================
     report(0, 'Main program running ...');
-    while(err > 1e-3 && max(T(PREV, :)) > 500)
+    while(err > 1e-3 && max(T(PREV, :)) > 500 && iter_cnt < MAX_ITER)
         iter_cnt = iter_cnt + 1;
         report(1, sprintf('Iteration %d:', iter_cnt));
 
