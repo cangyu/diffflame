@@ -130,7 +130,7 @@ function SolveFlame2(mdot_f, mdot_o, L, N, ChemTbl_DIR, MAX_ITER)
             cp(i) = cp_mass(gas);
             D(:, i) = mixDiffCoeffs(gas);
             w = netProdRates(gas); % kmol / (m^3 * s)
-            h = enthalpies_RT(gas) * local_T * gasconstant; % J/Kmol       
+            h = enthalpies_RT(gas) * local_T * gasconstant; % J/Kmol
             RS(i) = -dot(w, h); % J / (m^3 * s)
             RR(:, i) = w.* MW; % Kg / (m^3 * s)
         end
@@ -287,7 +287,6 @@ function SolveFlame2(mdot_f, mdot_o, L, N, ChemTbl_DIR, MAX_ITER)
 
         %% CFL condition
         dt_cfl = CFL * dz / max(abs(u(CUR, :)));
-        report(2, sprintf('Time step given by CFL condition: %es', dt_cfl));
 
         %% Solve T and Y together
         report(2, 'Solving T and Y equations ...');
@@ -431,7 +430,7 @@ function SolveFlame2(mdot_f, mdot_o, L, N, ChemTbl_DIR, MAX_ITER)
             
             %% Check convergence
             TY_iter_ok = (max_rel_change_of_T < 1e-4) && (max(max_rel_change_of_Y) < 1e-3);
-            report(3, sprintf('dt=%es, dT_max=%eK, dT/T_max=%e', dt, max_abs_change_of_T, max_rel_change_of_T));
+            report(3, sprintf('dt=%es, Tmax=%fK, dT_max=%eK, dT/T_max=%e', dt, max(xT), max_abs_change_of_T, max_rel_change_of_T));
             
             %% Update T and Y
             T(PREV, 2:N-1) = xT(:);
