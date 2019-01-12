@@ -118,9 +118,6 @@ function SolveFlame2(mdot_f, mdot_o, L, N, ChemTbl_DIR, MAX_ITER)
     %==================================Loop=================================
     report(0, 'Main program running ...');
     while(err > 1e-3 && max(T(PREV, :)) > 350 && iter_cnt < MAX_ITER)
-        iter_cnt = iter_cnt + 1;
-        report(1, sprintf('Iteration %d:', iter_cnt));
-
         %% Calc physical properties
         for i = 1:N
             local_T = T(PREV, i);
@@ -232,6 +229,12 @@ function SolveFlame2(mdot_f, mdot_o, L, N, ChemTbl_DIR, MAX_ITER)
         title('$$\dot{\omega}_{H_2}$$','Interpreter','latex');
         xlabel('z / m')
         ylabel('Kg\cdotm^{-3}\cdots^{-1}')
+
+        saveas(h, sprintf('../pic/iter%d.png', iter_cnt));
+
+        %% Update global iteration counter
+        iter_cnt = iter_cnt + 1;
+        report(1, sprintf('Iteration %d:', iter_cnt));
 
         %% Solve V
         coef = zeros(N, N);
