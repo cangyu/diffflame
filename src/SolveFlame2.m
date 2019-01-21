@@ -147,7 +147,7 @@ function SolveFlame2(mdot_f, mdot_o, L, N, ChemTbl_DIR, MAX_ITER)
 
         %% Plot
         h = figure(1);
-        set(h, 'position', get(0,'ScreenSize'));
+        %set(h, 'position', get(0,'ScreenSize'));
 
         subplot(3, 6, 1)
         plot(z, T(PREV, :))
@@ -243,7 +243,7 @@ function SolveFlame2(mdot_f, mdot_o, L, N, ChemTbl_DIR, MAX_ITER)
         xlabel('z / m')
         ylabel('Kg\cdotm^{-3}\cdots^{-1}')
 
-        saveas(h, sprintf('../pic/iter%d.png', global_iter_cnt));
+        %saveas(h, sprintf('../pic/iter%d.png', global_iter_cnt));
 
         %% Update global iteration counter
         global_iter_cnt = global_iter_cnt + 1;
@@ -297,11 +297,11 @@ function SolveFlame2(mdot_f, mdot_o, L, N, ChemTbl_DIR, MAX_ITER)
         rhs2 = sum(df(mu .* dVdz, dz, N));
 
         Nbla(CUR) = (rhs2 - lhs1 - lhs2) / N;
-        Nbla(CUR) = relaxation(Nbla(PREV), Nbla(CUR), 0.5);        
+        %Nbla(CUR) = relaxation(Nbla(PREV), Nbla(CUR), 0.5);        
         abs_change_of_Nbla = abs(Nbla(CUR) - Nbla(PREV));
         rel_change_of_Nbla = abs(abs_change_of_Nbla / Nbla(PREV));
         report(2, sprintf('Nbla = %f(After Relaxation), abs_err = %f, rel_err = %e', Nbla(CUR), abs_change_of_Nbla, rel_change_of_Nbla));
-        global_iter_ok = abs_change_of_Nbla < 1e-3 || rel_change_of_Nbla < 1e-6;
+        global_iter_ok = abs_change_of_Nbla < 1e-3 || rel_change_of_Nbla < 1e-7;
 
         %% CFL condition
         dt_cfl = CFL * dz / max(abs(u(CUR, :)));
