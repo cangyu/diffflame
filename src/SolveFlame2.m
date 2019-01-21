@@ -58,9 +58,9 @@ function SolveFlame2(mdot_f, mdot_o, L, N, ChemTbl_DIR, MAX_ITER)
     cm = 0.0; %Upwind coef for i
     cr = 0.0; %Upwind coef for i+1
 
-    iter_cnt = 0;
-    err = 1.0;
-
+    global_iter_cnt = 0;
+    global_iter_ok = false;
+    
     %=============================Init========================================
     filefolder = fullfile('../data');
     diroutput = dir(fullfile(filefolder, 'iter*.txt'));
@@ -74,10 +74,10 @@ function SolveFlame2(mdot_f, mdot_o, L, N, ChemTbl_DIR, MAX_ITER)
             c = str2num(b);
             max_idx = max(max_idx, c);
         end
-        iter_cnt = max_idx;
+        global_iter_cnt = max_idx;
 
         report(0, 'Loading existing data ...');
-        fin = fopen(sprintf('../data/iter%d.txt', iter_cnt), 'r');
+        fin = fopen(sprintf('../data/iter%d.txt', global_iter_cnt), 'r');
         data_set = fscanf(fin, '%e', [6+K N]);
         rho(PREV, :) = data_set(1, :);
         u(PREV, :) = data_set(2, :);
@@ -130,7 +130,7 @@ function SolveFlame2(mdot_f, mdot_o, L, N, ChemTbl_DIR, MAX_ITER)
 
     %==================================Loop=================================
     report(0, 'Main program running ...');
-    while(err > 1e-3 && max(T(PREV, :)) > 350 && iter_cnt < MAX_ITER)
+    while(~global_iter_ok && max(T(PREV, :)) > 350 && global_iter_cnt < MAX_ITER)
         %% Calc physical properties
         for i = 1:N
             local_T = T(PREV, i);
@@ -243,11 +243,11 @@ function SolveFlame2(mdot_f, mdot_o, L, N, ChemTbl_DIR, MAX_ITER)
         xlabel('z / m')
         ylabel('Kg\cdotm^{-3}\cdots^{-1}')
 
-        saveas(h, sprintf('../pic/iter%d.png', iter_cnt));
+        saveas(h, sprintf('../pic/iter%d.png', global_iter_cnt));
 
         %% Update global iteration counter
-        iter_cnt = iter_cnt + 1;
-        report(1, sprintf('Iteration %d:', iter_cnt));
+        global_iter_cnt = global_iter_cnt + 1;
+        report(1, sprintf('Iteration %d:', global_iter_cnt));
 
         %% Solve V
         coef = zeros(N, N);
@@ -297,10 +297,11 @@ function SolveFlame2(mdot_f, mdot_o, L, N, ChemTbl_DIR, MAX_ITER)
         rhs2 = sum(df(mu .* dVdz, dz, N));
 
         Nbla(CUR) = (rhs2 - lhs1 - lhs2) / N;
-        Nbla(CUR) = relaxation(Nbla(PREV), Nbla(CUR), 0.5);
-        err = abs(Nbla(CUR) - Nbla(PREV));
-        rel_change_of_Nbla = abs(err / Nbla(PREV));
-        report(2, sprintf('Nbla = %f(After Relaxation), abs_err = %f, rel_err = %e', Nbla(CUR), err, rel_change_of_Nbla));
+        Nbla(CUR) = relaxation(Nbla(PREV), Nbla(CUR), 0.5);        
+        abs_change_of_Nbla = abs(Nbla(CUR) - Nbla(PREV));
+        rel_change_of_Nbla = abs(abs_change_of_Nbla / Nbla(PREV));
+        report(2, sprintf('Nbla = %f(After Relaxation), abs_err = %f, rel_err = %e', Nbla(CUR), abs_change_of_Nbla, rel_change_of_Nbla));
+        global_iter_ok = abs_change_of_Nbla < 1e-3 || rel_change_of_Nbla < 1e-6;
 
         %% CFL condition
         dt_cfl = CFL * dz / max(abs(u(CUR, :)));
@@ -476,7 +477,7 @@ function SolveFlame2(mdot_f, mdot_o, L, N, ChemTbl_DIR, MAX_ITER)
 
         %% Save current iteration
         report(2, 'Writing data ...');
-        fout = fopen(sprintf('../data/iter%d.txt', iter_cnt), 'w');
+        fout = fopen(sprintf('../data/iter%d.txt', global_iter_cnt), 'w');
         for i = 1:N
             fprintf(fout, '%24.6e', rho(CUR, i));
             fprintf(fout, '%24.6e', u(CUR, i));
@@ -495,7 +496,7 @@ function SolveFlame2(mdot_f, mdot_o, L, N, ChemTbl_DIR, MAX_ITER)
         PREV = 3 - PREV;
         CUR = 3 - CUR;
     end
-    report(0, sprintf('Main program converges after %d iterations!', iter_cnt));
+    report(0, sprintf('Main program converges after %d iterations!', global_iter_cnt));
 
     %% ==================Transform to Z space and output============================
     report(0, 'Transforming to Z space ...');
