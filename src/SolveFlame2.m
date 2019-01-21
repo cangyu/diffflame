@@ -50,8 +50,8 @@ function SolveFlame2(mdot_f, mdot_o, L, N, ChemTbl_DIR, MAX_ITER)
     RS = zeros(N, 1); %Energy source due to chemical reaction, J / (m^3 * s)
     RR = zeros(K, N); %Chemical reaction rate, Kg / (m^3 * s)
 
-    CFL = 0.8;
-    max_dT = 0.5;
+    CFL = 0.9;
+    max_dT = 1.0;
     max_dY = zeros(K, N);
     
     cl = 0.0; %Upwind coef for i-1
@@ -90,8 +90,7 @@ function SolveFlame2(mdot_f, mdot_o, L, N, ChemTbl_DIR, MAX_ITER)
         end
         fclose(fin);
         
-        %Enforce the velocity inlet B.C.
-        %according to mass flux.
+        %Enforce the velocity inlet B.C. according to mass flux.
         u(PREV, 1) = mdot_L / rho(PREV, 1);
         u(PREV, N) = mdot_R / rho(PREV, N);
     else
@@ -109,10 +108,17 @@ function SolveFlame2(mdot_f, mdot_o, L, N, ChemTbl_DIR, MAX_ITER)
             rho(PREV, i) = P / (gasconstant * T(PREV, i) * sum(squeeze(Y(PREV, :, i)) ./ MW'));
         end
 
+        %V set to 0 at boundary as no vertical slip physically
         V(PREV, :) = -df(rho(PREV, :) .* u(PREV, :), dz, N) ./ (2 * rho(PREV, :));
         V(PREV,1)=0.0;
         V(PREV,N)=0.0;
-        Nbla(PREV) = -0.1;
+        
+        %Select initial guess of the eigen-value
+        dVdz = df(V(PREV, :), dz, N);
+        lhs1 = dot(rho(PREV, :) .* u(PREV, :), dVdz);
+        lhs2 = dot(rho(PREV, :) .* V(PREV, :), V(PREV, :));
+        rhs2 = sum(df(mu .* dVdz, dz, N));
+        Nbla(PREV) = (rhs2 - lhs1 - lhs2) / N;
     end
 
     rho(CUR, :) = rho(PREV, :);
@@ -291,9 +297,10 @@ function SolveFlame2(mdot_f, mdot_o, L, N, ChemTbl_DIR, MAX_ITER)
         rhs2 = sum(df(mu .* dVdz, dz, N));
 
         Nbla(CUR) = (rhs2 - lhs1 - lhs2) / N;
-        err = abs(Nbla(CUR) - Nbla(PREV));
-        report(2, sprintf('errNbla = %f', err));
         Nbla(CUR) = relaxation(Nbla(PREV), Nbla(CUR), 0.5);
+        err = abs(Nbla(CUR) - Nbla(PREV));
+        rel_change_of_Nbla = abs(err / Nbla(PREV));
+        report(2, sprintf('Nbla = %f(After Relaxation), abs_err = %f, rel_err = %e', Nbla(CUR), err, rel_change_of_Nbla));
 
         %% CFL condition
         dt_cfl = CFL * dz / max(abs(u(CUR, :)));
@@ -436,11 +443,12 @@ function SolveFlame2(mdot_f, mdot_o, L, N, ChemTbl_DIR, MAX_ITER)
                 %Calculate absolute and relative error 
                 max_abs_change_of_Y(k) = max(abs(squeeze(xY(k, :)') - squeeze(Y(PREV, k, 2:N-1))));
                 max_rel_change_of_Y(k) = max_abs_change_of_Y(k) / (max(Y(PREV, k, 2:N-1)) + 1e-80);
+                global_max_rel_change_of_Y = max(max_rel_change_of_Y);
             end
             
             %% Check convergence
-            TY_iter_ok = (max_rel_change_of_T < 1e-4) && (max(max_rel_change_of_Y) < 1e-3);
-            report(3, sprintf('dt=%es, Tmax=%fK, dT_max=%eK, dT/T_max=%e', dt, max(xT), max_abs_change_of_T, max_rel_change_of_T));
+            TY_iter_ok = max_rel_change_of_T < 1e-4 && global_max_rel_change_of_Y < 1e-3;
+            report(3, sprintf('dt=%es, Tmax=%fK, dT_max=%eK, dT/T_max=%e, dY/Y_max=%e', dt, max(xT), max_abs_change_of_T, max_rel_change_of_T, global_max_rel_change_of_Y));
             
             %% Update T and Y
             T(PREV, 2:N-1) = xT(:);
