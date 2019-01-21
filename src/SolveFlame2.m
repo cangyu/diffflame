@@ -89,6 +89,11 @@ function SolveFlame2(mdot_f, mdot_o, L, N, ChemTbl_DIR, MAX_ITER)
             Y(PREV, k, :) = data_set(6+k, :);
         end
         fclose(fin);
+        
+        %Enforce the velocity inlet B.C.
+        %according to mass flux.
+        u(PREV, 1) = mdot_L / rho(PREV, 1);
+        u(PREV, N) = mdot_R / rho(PREV, N);
     else
         report(0, 'Initializing ...');
         [zc, uc, Tc,  Yc] = DiffFlameSim(L, P, 300.0, mdot_L, -mdot_R);
@@ -105,6 +110,8 @@ function SolveFlame2(mdot_f, mdot_o, L, N, ChemTbl_DIR, MAX_ITER)
         end
 
         V(PREV, :) = -df(rho(PREV, :) .* u(PREV, :), dz, N) ./ (2 * rho(PREV, :));
+        V(PREV,1)=0.0;
+        V(PREV,N)=0.0;
         Nbla(PREV) = -0.1;
     end
 
