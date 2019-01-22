@@ -297,11 +297,10 @@ function SolveFlame2(mdot_f, mdot_o, L, N, ChemTbl_DIR, MAX_ITER)
         rhs2 = sum(df(mu .* dVdz, dz, N));
 
         Nbla(CUR) = (rhs2 - lhs1 - lhs2) / N;
-        %Nbla(CUR) = relaxation(Nbla(PREV), Nbla(CUR), 0.5);        
         abs_change_of_Nbla = abs(Nbla(CUR) - Nbla(PREV));
         rel_change_of_Nbla = abs(abs_change_of_Nbla / Nbla(PREV));
-        report(2, sprintf('Nbla = %f(After Relaxation), abs_err = %f, rel_err = %e', Nbla(CUR), abs_change_of_Nbla, rel_change_of_Nbla));
-        global_iter_ok = abs_change_of_Nbla < 1e-3 || rel_change_of_Nbla < 1e-7;
+        report(2, sprintf('Nbla = %f, abs_err = %f, rel_err = %e', Nbla(CUR), abs_change_of_Nbla, rel_change_of_Nbla));
+        global_iter_ok = abs_change_of_Nbla < 1e-2;
 
         %% CFL condition
         dt_cfl = CFL * dz / max(abs(u(CUR, :)));
@@ -544,6 +543,9 @@ function SolveFlame2(mdot_f, mdot_o, L, N, ChemTbl_DIR, MAX_ITER)
     
     %% Task Done
     report(0, 'Done!');
+    mail_title = sprintf('Case mf=%f_mo=%f Finished!', mdot_f, mdot_o);
+    mail_content = sprintf('%d iterations, Tmax=%fK', global_iter_cnt, max(T(CUR, :)));
+    report_done(mail_title, mail_content);
 end
 
 %% =================================Helpers================================
@@ -637,7 +639,6 @@ function [z, u, T, y] = DiffFlameSim(domain_length, p, tin, mdot_f, mdot_o)
     enableEnergy(f);
     setRefineCriteria(fl, 2, 200.0, 0.1, 0.2);
     solve(fl, loglevel, refine_grid);
-    %saveSoln(fl,'ch4.xml','energy',['solution with energy equation']);
     
     writeStats(fl);
     elapsed = cputime - runtime;
