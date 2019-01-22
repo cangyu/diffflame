@@ -300,7 +300,7 @@ function SolveFlame2(mdot_f, mdot_o, L, N, ChemTbl_DIR, MAX_ITER)
         abs_change_of_Nbla = abs(Nbla(CUR) - Nbla(PREV));
         rel_change_of_Nbla = abs(abs_change_of_Nbla / Nbla(PREV));
         report(2, sprintf('Nbla = %f, abs_err = %f, rel_err = %e', Nbla(CUR), abs_change_of_Nbla, rel_change_of_Nbla));
-        global_iter_ok = abs_change_of_Nbla < 1e-2;
+        global_iter_ok = abs_change_of_Nbla < 1e-2 || rel_change_of_Nbla < 5e-8;
 
         %% CFL condition
         dt_cfl = CFL * dz / max(abs(u(CUR, :)));
@@ -543,9 +543,9 @@ function SolveFlame2(mdot_f, mdot_o, L, N, ChemTbl_DIR, MAX_ITER)
     
     %% Task Done
     report(0, 'Done!');
-    mail_title = sprintf('Case mf=%f_mo=%f Finished!', mdot_f, mdot_o);
+    mail_title = sprintf('mf=%f_mo=%f Done!', mdot_f, mdot_o);
     mail_content = sprintf('%d iterations, Tmax=%fK', global_iter_cnt, max(T(CUR, :)));
-    report_done(mail_title, mail_content);
+    mail_to_me(mail_title, mail_content);
 end
 
 %% =================================Helpers================================
@@ -652,4 +652,16 @@ function [z, u, T, y] = DiffFlameSim(domain_length, p, tin, mdot_f, mdot_o)
     for i = 1:length(spec)
         y(i,:) = solution(fl, 'flow', spec{i}); % Get mass fraction of all species from solution
     end
+end
+
+function mail_to_me(subject,content) 
+    dizhi = 'cysqyh@163.com'; 
+    mima = '&LgbNXr&C*m$5WPh';
+    setpref('Internet','E_mail',dizhi); 
+    setpref('Internet','SMTP_Server','smtp.163.com'); 
+    setpref('Internet','SMTP_Username',dizhi); 
+    setpref('Internet','SMTP_Password',mima); 
+    props = java.lang.System.getProperties; 
+    props.setProperty('mail.smtp.auth','true'); 
+    sendmail('yu.cang@sjtu.edu.cn',subject,content);
 end
