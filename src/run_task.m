@@ -14,7 +14,7 @@ for k = 1: min(n, 500)
     mf = data(k, 1);
     mo = data(k, 2);
     try
-        SolveFlame0(mf, mo, 0.05, 1001, '../data', 0);
+        SolveFlame3(mf, mo, 0.05, 5001, '../data', 0);
     catch
         fprintf('Case%d failed!\n', k);
     end
