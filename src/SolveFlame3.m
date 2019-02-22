@@ -7,6 +7,10 @@ function SolveFlame3(mdot_f, mdot_o, L, N, ChemTbl_DIR, MAX_ITER)
 %  ChemTbl_DIR: Target directory where transformed data files are stored.
 %  MAX_ITER: Maximun number of global iteration.
 
+    if ~exist(ChemTbl_DIR, 'dir')
+        mkdir(ChemTbl_DIR)
+    end
+
     gas = GRI30('Mix');
 
     ch4_idx = speciesIndex(gas, 'CH4');
