@@ -2,6 +2,9 @@ import os
 import math
 import numpy as np
 
+Y0_CH4 = 16/18
+Y0_H2 = 2/18
+
 
 def linear_interp(a, b, t: float):
     return (1-t) * a + t * b
@@ -135,7 +138,7 @@ def add_extinction_and_do_average(rl):
         for j in range(z_num+1):
             if (not hot_sol[i][j]) and (not cold_sol[i][j]):
                 z_u = 0.01*j
-                sol[i][j] = np.array([1e-4, kai, j, 0.0, 8/9*z_u, 0.0, 1/9*z_u, 0.0, 0.0, 300.0, 0.0]) #燃料侧是甲烷-氢气1:1
+                sol[i][j] = np.array([1e-4, kai, j, 0.0, Y0_CH4*z_u, 0.0, Y0_H2*z_u, 0.0, 0.0, 300.0, 0.0]) #燃料侧是甲烷-氢气1:1
             elif (not hot_sol[i][j]) and cold_sol[i][j]:
                 sol[i][j] = sum([rl[k] for k in cold_sol[i][j]])/len(cold_sol[i][j])
             else:
