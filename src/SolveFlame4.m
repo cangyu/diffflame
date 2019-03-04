@@ -11,12 +11,13 @@ function SolveFlame4(mdot_f, mdot_o, L, N, output_dir)
     end
     
     %% Setup solution environment
+    Le = 1.0;
     P = oneatm; %The constant pressure, Pa
     mdot_L = mdot_f ; %Fuel stream, Kg/(m^2 * s)
     mdot_R = -mdot_o; %Air stream, Kg/(m^2 * s)
     
-    r = sqrt(eps);
-    a = sqrt(eps);
+    r = 1e-4;
+    a = 1e-9;
     
     gas = GRI30('Mix');
     ch4_idx = speciesIndex(gas, 'CH4');
@@ -60,13 +61,37 @@ function SolveFlame4(mdot_f, mdot_o, L, N, output_dir)
     ddTddz = zeros(2, N);
     ddYddz = zeros(2, K, N);
     
-    unknown_per_node = 1+K+1;
-    unknown_num = unknown_per_node*N;
+    C = 1+K+1;  % Num of unknowns per node
+    unknown_num = C*N;
     phi=zeros(2, unknown_num);
-    F= zeros(2, unkown_num);
-    J = zeros(unkown_num, unkown_num);
+    F= zeros(2, unknown_num);
+    J = zeros(unknown_num, unknown_num);
     
     %% Initialize using the Burke-Shumann solution
+    [zc, uc, Tc,  Yc] = DiffFlameSim(L, P, 300.0, mdot_L, -mdot_R);
+    tpts = z - zL;
+
+    T(CUR, :) = spline(zc, Tc, tpts);
+    u(CUR, :) = spline(zc, uc, tpts);
+    for k = 1:K
+        Y(CUR, k, :) = spline(zc, Yc(k, :), tpts);
+    end
+
+    for i = 1:N
+        rho(CUR, i) = P / (gasconstant * T(CUR, i) * sum(squeeze(Y(CUR, :, i)) ./ MW'));
+    end
+
+    %V set to 0 at boundary as no vertical slip physically
+    V(CUR, :) = -df(rho(CUR, :) .* u(CUR, :), z, N) ./ (2 * rho(CUR, :));
+    V(CUR,1)=0.0;
+    V(CUR,N)=0.0;
+
+    %Select initial guess of the eigenvalue
+    dVdz(CUR, :) = df(V(CUR, :), z, N);
+    lhs1 = dot(rho(CUR, :) .* u(CUR, :), dVdz(CUR, :));
+    lhs2 = dot(rho(CUR, :) .* V(CUR, :), V(CUR, :));
+    rhs2 = sum(df(mu .* dVdz, z, N));
+    Nbla(CUR) = (rhs2 - lhs1 - lhs2) / N;
     
     %% Solve 
     global_converged = false;
@@ -81,7 +106,7 @@ function SolveFlame4(mdot_f, mdot_o, L, N, output_dir)
             mu(CUR,i) = viscosity(gas);
             lambda(CUR,i) = thermalConductivity(gas);
             cp(CUR,i) = cp_mass(gas);
-            D(CUR,:, i) = mixDiffCoeffs(gas);
+            D(CUR,:, i) = lambda(CUR,i) / (rho(CUR, i) * cp(CUR, i) * Le);
             w = netProdRates(gas); % kmol / (m^3 * s)
             h = enthalpies_RT(gas) * local_T * gasconstant; % J/Kmol
             RS(CUR,i) = -dot(w, h); % J / (m^3 * s)
@@ -123,8 +148,8 @@ function SolveFlame4(mdot_f, mdot_o, L, N, output_dir)
             T(NEXT, :) = T(CUR, :);
             Y(NEXT, :, :) = Y(CUR, :, :);
             %% add perturbation
-            node_idx = ceil(j / unknown_per_node);
-            var_idx = mod(j, unknown_per_node);
+            node_idx = ceil(j / C);
+            var_idx = mod(j, C);
             if  var_idx == 1
                 delta = perturbation_delta(r, a, rho(CUR, node_idx));
                 rho(NEXT, node_idx) = rho(CUR, node_idx) + delta;
@@ -143,7 +168,7 @@ function SolveFlame4(mdot_f, mdot_o, L, N, output_dir)
                 mu(NEXT,i) = viscosity(gas);
                 lambda(NEXT,i) = thermalConductivity(gas);
                 cp(NEXT,i) = cp_mass(gas);
-                D(NEXT,:, i) = mixDiffCoeffs(gas);
+                D(NEXT,:, i) = lambda(NEXT,i) / (rho(NEXT, i) * cp(NEXT, i) * Le);
                 w = netProdRates(gas); % kmol / (m^3 * s)
                 h = enthalpies_RT(gas) * local_T * gasconstant; % J/Kmol
                 RS(NEXT,i) = -dot(w, h); % J / (m^3 * s)
@@ -179,8 +204,7 @@ function SolveFlame4(mdot_f, mdot_o, L, N, output_dir)
         end
         
         %% Solve the Jacobian
-        dphi = solBlkDiagMat(J, F(CUR, :));
-        
+        dphi = solBlkDiagMat(J, F(CUR, :)');
         for j = 1:unknown_num
             
         end
@@ -232,4 +256,55 @@ end
 
 function x = solBlkDiagMat(B, b)
     x = B\b;
+end
+
+function [z, u, T, y] = DiffFlameSim(domain_length, p, tin, mdot_f, mdot_o)
+    runtime = cputime;  % Record the starting time
+
+    initial_grid = domain_length*linspace(0,1, 251);  % Units: m
+    tol_ss    = [1e-4 1e-9];        % [rtol atol] for steady-state problem
+    tol_ts    = [1e-4 1e-9];        % [rtol atol] for time stepping
+    loglevel  = 1;                      % Amount of diagnostic output (0 to 5)
+    refine_grid = 1;                    % 1 to enable refinement, 0 to disable
+
+    fuel = GRI30('Mix');
+    ox = GRI30('Mix');
+    oxcomp = 'O2:0.21, N2:0.78'; % Air composition
+    fuelcomp = 'CH4:0.5, H2:0.5'; % Fuel composition
+
+    set(fuel,'T', tin, 'P', p, 'X', fuelcomp);
+    set(ox,'T',tin,'P',p,'X', oxcomp);
+
+    f = AxisymmetricFlow(fuel,'flow');
+    set(f, 'P', p, 'grid', initial_grid);
+    set(f, 'tol', tol_ss, 'tol-time', tol_ts);
+
+    % Set the oxidizer inlet.
+    inlet_o = Inlet('air_inlet');
+    set(inlet_o, 'T', tin, 'MassFlux', mdot_o, 'X', oxcomp);
+
+    % Set the fuel inlet.
+    inlet_f = Inlet('fuel_inlet');
+    set(inlet_f, 'T', tin, 'MassFlux', mdot_f, 'X', fuelcomp);
+
+    fl = CounterFlowDiffusionFlame(inlet_f, f, inlet_o, fuel, ox, 'O2');
+
+    solve(fl, loglevel, 0);
+
+    enableEnergy(f);
+    setRefineCriteria(fl, 2, 200.0, 0.1, 0.2);
+    solve(fl, loglevel, refine_grid);
+    
+    writeStats(fl);
+    elapsed = cputime - runtime;
+    fprintf('Elapsed CPU time: %10.4g\n',elapsed);
+
+    z = grid(fl, 'flow'); % Get grid points of flow
+    spec = speciesNames(fuel); % Get species names in gas
+    u = solution(fl, 'flow', 'u'); 
+    T = solution(fl, 'flow', 'T'); % Get temperature solution
+    y = zeros(length(spec), length(z));
+    for i = 1:length(spec)
+        y(i,:) = solution(fl, 'flow', spec{i}); % Get mass fraction of all species from solution
+    end
 end
