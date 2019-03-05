@@ -82,16 +82,17 @@ function SolveFlame4(mdot_f, mdot_o, L, N, output_dir)
     end
 
     %V set to 0 at boundary as no vertical slip physically
-    V(CUR, :) = -df(rho(CUR, :) .* u(CUR, :), z, N) ./ (2 * rho(CUR, :));
+    V(CUR, :) = -df_upwind(rho(CUR, :) .* u(CUR, :), z, u(CUR, :)) ./ (2 * rho(CUR, :));
     V(CUR,1)=0.0;
     V(CUR,N)=0.0;
 
     %Select initial guess of the eigenvalue
-    dVdz(CUR, :) = df(V(CUR, :), z, N);
+    dVdz(CUR, :) = df_upwind(V(CUR, :), z, u(CUR, :));
+    ddVddz(CUR, :) = ddf(V(CUR, :), z);
     lhs1 = dot(rho(CUR, :) .* u(CUR, :), dVdz(CUR, :));
     lhs2 = dot(rho(CUR, :) .* V(CUR, :), V(CUR, :));
-    rhs2 = sum(df(mu .* dVdz, z, N));
-    Nbla(CUR) = (rhs2 - lhs1 - lhs2) / N;
+    rhs2 = dot(mu,  ddVddz);
+    Nbla(CUR, :) = (rhs2 - lhs1 - lhs2) / N;
     
     %% Solve 
     global_converged = false;
@@ -106,29 +107,29 @@ function SolveFlame4(mdot_f, mdot_o, L, N, output_dir)
             mu(CUR,i) = viscosity(gas);
             lambda(CUR,i) = thermalConductivity(gas);
             cp(CUR,i) = cp_mass(gas);
-            D(CUR,:, i) = lambda(CUR,i) / (rho(CUR, i) * cp(CUR, i) * Le);
+            D(CUR, :, i) = lambda(CUR,i) / (rho(CUR, i) * cp(CUR, i) * Le);
             w = netProdRates(gas); % kmol / (m^3 * s)
             h = enthalpies_RT(gas) * local_T * gasconstant; % J/Kmol
-            RS(CUR,i) = -dot(w, h); % J / (m^3 * s)
+            RS(CUR,i) = dot(w, h); % J / (m^3 * s)
             RR(CUR,:, i) = w.* MW; % Kg / (m^3 * s)
         end
                 
         %% Calcaulate derivatives
-        dVdz(CUR, :) = df(V(CUR, :), z, N);
-        dTdz(CUR, :) = df(T(CUR, :), z, N);
+        dVdz(CUR, :) = df_upwind(V(CUR, :), z, u(CUR, :));
+        dTdz(CUR, :) = df_upwind(T(CUR, :), z, u(CUR, :));
         for k = 1:K
-            dYdz(CUR, k, :) = df(Y(CUR, k, :), z, N);
+            dYdz(CUR, k, :) = df_upwind(Y(CUR, k, :), z, u(CUR, :));
         end
-        ddVddz(CUR, :) = ddf(V(CUR, :), z, N);
-        ddTddz(CUR, :) = ddf(T(CUR, :), z, N);
+        ddVddz(CUR, :) = ddf(V(CUR, :), z);
+        ddTddz(CUR, :) = ddf(T(CUR, :), z);
          for k = 1:K
-            ddYddz(CUR, k, :) = ddf(Y(CUR, k, :), z, N);
+            ddYddz(CUR, k, :) = ddf(Y(CUR, k, :), z);
         end
        
         %% Calculate residuals
         cnt = 1;
         for i = 1:N
-            F(CUR, cnt) = rho(CUR, i) * cp(CUR,i) * u(CUR, i) * dTdz(CUR,i) -lambda(CUR,i) * ddTddz(CUR,i) - RS(CUR,i);
+            F(CUR, cnt) = rho(CUR, i) * cp(CUR,i) * u(CUR, i) * dTdz(CUR,i) -lambda(CUR,i) * ddTddz(CUR,i) + RS(CUR,i);
             cnt = cnt + 1;
             for k = 1:K
                 F(CUR, cnt) = rho(CUR, i)*u(CUR, i)*dYdz(CUR,k, i)-D(CUR,k,i)*ddYddz(CUR,k,i)-RR(CUR,k, i);
@@ -151,15 +152,15 @@ function SolveFlame4(mdot_f, mdot_o, L, N, output_dir)
             node_idx = ceil(j / C);
             var_idx = mod(j, C);
             if  var_idx == 1
-                delta = perturbation_delta(r, a, rho(CUR, node_idx));
-                rho(NEXT, node_idx) = rho(CUR, node_idx) + delta;
+                delta = perturbation_delta(r, a, T(CUR, node_idx));
+                T(NEXT, node_idx) = T(CUR, node_idx) + delta;
             elseif var_idx == 0
                 delta = perturbation_delta(r, a, Nbla(CUR, node_idx));
                 Nbla(NEXT, node_idx) = Nbla(CUR, node_idx) + delta;
             else
                 spec_idx = var_idx - 1;
                 delta = perturbation_delta(r, a, Y(CUR, spec_idx, node_idx));
-                Y(NEXT, spec_idx, node_idx) = Y(NEXT, spec_idx, node_idx) + delta;
+                Y(NEXT, spec_idx, node_idx) = Y(CUR, spec_idx, node_idx) + delta;
             end
             %% update properties
             for i = 1:N
@@ -171,24 +172,24 @@ function SolveFlame4(mdot_f, mdot_o, L, N, output_dir)
                 D(NEXT,:, i) = lambda(NEXT,i) / (rho(NEXT, i) * cp(NEXT, i) * Le);
                 w = netProdRates(gas); % kmol / (m^3 * s)
                 h = enthalpies_RT(gas) * local_T * gasconstant; % J/Kmol
-                RS(NEXT,i) = -dot(w, h); % J / (m^3 * s)
+                RS(NEXT,i) = dot(w, h); % J / (m^3 * s)
                 RR(NEXT,:, i) = w.* MW; % Kg / (m^3 * s)
             end
             %% compute derivatives
-            dVdz(NEXT, :) = df(V(NEXT, :), z, N);
-            dTdz(NEXT, :) = df(T(NEXT, :), z, N);
+            dVdz(NEXT, :) = df_upwind(V(NEXT, :), z,  u(NEXT, :));
+            dTdz(NEXT, :) = df_upwind(T(NEXT, :), z, u(NEXT, :));
             for k = 1:K
-                dYdz(NEXT, k, :) = df(Y(NEXT, k, :), z, N);
+                dYdz(NEXT, k, :) = df_upwind(Y(NEXT, k, :), z, u(NEXT, :));
             end
-            ddVddz(NEXT, :) = ddf(V(NEXT, :), z, N);
-            ddTddz(NEXT, :) = ddf(T(NEXT, :), z, N);
+            ddVddz(NEXT, :) = ddf(V(NEXT, :), z);
+            ddTddz(NEXT, :) = ddf(T(NEXT, :), z);
              for k = 1:K
-                ddYddz(NEXT, k, :) = ddf(Y(NEXT, k, :), z, N);
+                ddYddz(NEXT, k, :) = ddf(Y(NEXT, k, :), z);
             end
             %% calculate residuals
             cnt = 1;
             for i = 1:N
-                F(NEXT, cnt) = rho(NEXT, i) * cp(NEXT,i) * u(NEXT, i) * dTdz(NEXT,i) -lambda(NEXT,i) * ddTddz(NEXT,i) - RS(NEXT,i);
+                F(NEXT, cnt) = rho(NEXT, i) * cp(NEXT,i) * u(NEXT, i) * dTdz(NEXT,i) -lambda(NEXT,i) * ddTddz(NEXT,i) + RS(NEXT,i);
                 cnt = cnt + 1;
                 for k = 1:K
                     F(NEXT, cnt) = rho(NEXT, i)*u(NEXT, i)*dYdz(NEXT,k, i)-D(NEXT,k,i)*ddYddz(NEXT,k,i)-RR(NEXT,k, i);
@@ -222,12 +223,13 @@ function ret = relaxation(a, b, alpha)
     ret = (1-alpha) * a + alpha * b;
 end
 
-function ret = df(f, x, N)
+function ret = df_upwind(f, x, upwind_var)
 %Upwind 1st order difference
+    N = length(x);
     ret = zeros(1, N);
     ret(1) = (f(2) - f(1))/(x(2)-x(1));
     for i = 2 : N-1
-        if f(i) > 0
+        if upwind_var(i) > 0
             ret(i) = (f(i) - f(i-1))/(x(i)-x(i-1));
         else
             ret(i) = (f(i+1) - f(i))/(x(i+1)-x(i));
@@ -236,8 +238,9 @@ function ret = df(f, x, N)
     ret(N) = (f(N) - f(N-1))/(x(N)-x(N-1));
 end
 
-function ret = ddf(f, x, N)
+function ret = ddf(f, x)
 %Central 2nd order difference
+    N = length(x);
     ret = zeros(1, N);
     ret(1) = 2.0/(x(2)-x(3))*((f(2)-f(1))/(x(2)-x(1)) - (f(3)-f(1))/(x(3)-x(1)));
     for i = 2 : N-1
