@@ -62,10 +62,10 @@ function SolveFlame6(mdot_f, mdot_o, L, N, output_dir)
     ddYddz = zeros(2, K, N);
     
     C = 4+K;  % Num of unknowns per node
-    unknown_num = C*(N-2);
-    phi=zeros(2, unknown_num);
-    F= zeros(2, unknown_num);
-    J = zeros(unknown_num, unknown_num);
+    U = C*(N-2);
+    phi=zeros(2, U);
+    F= zeros(2, U);
+    J = zeros(U, U);
     
     %% Initialize using the Burke-Shumann solution
     [zc, uc, Tc,  Yc] = DiffFlameSim(L, P, 300.0, mdot_L, -mdot_R);
@@ -85,14 +85,19 @@ function SolveFlame6(mdot_f, mdot_o, L, N, output_dir)
     V(CUR, :) = -df_upwind(rho(CUR, :) .* u(CUR, :), z, u(CUR, :)) ./ (2 * rho(CUR, :));
     V(CUR,1)=0.0;
     V(CUR,N)=0.0;
+    
+    for i = 1:N
+        set(gas, 'T', T(CUR, i), 'P', P, 'Y', squeeze(Y(CUR, :, i)));
+        mu(CUR,i) = viscosity(gas);
+    end
 
     %Select initial guess of the eigenvalue
     dVdz(CUR, :) = df_upwind(V(CUR, :), z, u(CUR, :));
     ddVddz(CUR, :) = ddf(V(CUR, :), z);
-    lhs1 = dot(rho(CUR, :) .* u(CUR, :), dVdz(CUR, :));
-    lhs2 = dot(rho(CUR, :) .* V(CUR, :), V(CUR, :));
-    rhs2 = dot(mu,  ddVddz);
-    Nbla(CUR, :) = (rhs2 - lhs1 - lhs2) / N;
+    lhs1 = dot(rho(CUR, 2:N-1) .* u(CUR, 2:N-1), dVdz(CUR, 2:N-1));
+    lhs2 = dot(rho(CUR, 2:N-1) .* V(CUR, 2:N-1), V(CUR, 2:N-1));
+    rhs2 = dot(mu(CUR, 2:N-1),  ddVddz(CUR, 2:N-1));
+    Nbla(CUR, :) = (rhs2 - lhs1 - lhs2) / (N-2);
     
     %% Solve 
     global_converged = false;
@@ -153,7 +158,7 @@ function SolveFlame6(mdot_f, mdot_o, L, N, output_dir)
         end
         
         %% Calculate the Jacobian by finite difference perturbations
-        for j = 1:unknown_num
+        for j = 1:U
             %% var base init
             rho(NEXT, :) = rho(CUR, :);
             u(NEXT, :) = u(CUR, :);
@@ -231,13 +236,11 @@ function SolveFlame6(mdot_f, mdot_o, L, N, output_dir)
                 end
             end
             %% update column
-            for i = 1:unknown_num
-                J(i, j) = (F(NEXT, i) - F(CUR, i))/delta;
-            end
+            J(:, j) = (F(NEXT, :) - F(CUR, :))/delta;
         end
         
         %% Solve the Jacobian
-        dphi = solBlkDiagMat(J, F(CUR, :)');
+        dphi = solBlkDiagMat(J, F(CUR, :)', C);
         
     end
     
@@ -283,7 +286,9 @@ function ret = perturbation_delta(rel_perturb, abs_perturb, x)
     ret = rel_perturb * x + abs_perturb;
 end
 
-function x = solBlkDiagMat(B, b)
+function x = solBlkDiagMat(B, b, bandwidth)
+    
+
     x = B\b;
 end
 
