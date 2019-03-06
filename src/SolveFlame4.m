@@ -16,8 +16,8 @@ function SolveFlame4(mdot_f, mdot_o, L, N, output_dir)
     mdot_L = mdot_f ; %Fuel stream, Kg/(m^2 * s)
     mdot_R = -mdot_o; %Air stream, Kg/(m^2 * s)
     
-    r = 1e-4;
-    a = 1e-9;
+    r = sqrt(eps);
+    a = sqrt(eps);
     
     gas = GRI30('Mix');
     ch4_idx = speciesIndex(gas, 'CH4');
@@ -49,7 +49,7 @@ function SolveFlame4(mdot_f, mdot_o, L, N, output_dir)
     mu = zeros(2, N); %Viscosity, Pa * s = Kg / (m * s)
     cp = zeros(2, N); %Specific heat, J / (Kg * K)
     lambda = zeros(2, N); %Thermal conductivity, W / (m * K)
-    D = zeros(2, K, N); %Binary diffusion coefficients, m^2 / s
+    D = zeros(2, K, N); %Diffusion coefficients, m^2 / s
     
     RS = zeros(2, N); %Energy source due to chemical reaction, J / (m^3 * s)
     RR = zeros(2, K, N); %Chemical reaction rate, Kg / (m^3 * s)
@@ -61,44 +61,54 @@ function SolveFlame4(mdot_f, mdot_o, L, N, output_dir)
     ddTddz = zeros(2, N);
     ddYddz = zeros(2, K, N);
     
-    C = 1+K+1;  % Num of unknowns per node
-    unknown_num = C*N;
-    phi=zeros(2, unknown_num);
-    F= zeros(2, unknown_num);
-    J = zeros(unknown_num, unknown_num);
+    C = 4+K;  % Num of unknowns per node
+    U = C*(N-2);
+    %phi=zeros(2, U);
+    F= zeros(2, U);
+    %J = zeros(U, U);
     
     %% Initialize using the Burke-Shumann solution
-    [zc, uc, Tc,  Yc] = DiffFlameSim(L, P, 300.0, mdot_L, -mdot_R);
-    tpts = z - zL;
-
-    T(CUR, :) = spline(zc, Tc, tpts);
-    u(CUR, :) = spline(zc, uc, tpts);
-    for k = 1:K
-        Y(CUR, k, :) = spline(zc, Yc(k, :), tpts);
+    for p = 1:N
+        cur_ratio = (p-1) / (N-1);
+        T(CUR, p) = 300 + 1900 * exp(-(p - N / 2)^2 / (2 * 500));
+        Y(CUR,ch4_idx,p) = relaxation(8.88370331e-01, 0.0, cur_ratio);
+        Y(CUR,h2_idx,p) = relaxation(1.11629669e-01, 0.0, cur_ratio);
+        Y(CUR,o2_idx,p) = relaxation(0.0, 2.33009709e-01, cur_ratio);
+        Y(CUR,n2_idx,p) = relaxation(0.0, 7.66990291e-01, cur_ratio);
     end
-
     for i = 1:N
         rho(CUR, i) = P / (gasconstant * T(CUR, i) * sum(squeeze(Y(CUR, :, i)) ./ MW'));
     end
-
-    %V set to 0 at boundary as no vertical slip physically
+    u(CUR, 1) = mdot_L / rho(CUR, 1);
+    u(CUR, N) = mdot_R / rho(CUR, N);
+    for p = 2:N - 1
+        cur_ratio = (p-1) / (N - 1);
+        u(CUR, p) = relaxation(u(CUR, 1), u(CUR, N), cur_ratio);
+    end
     V(CUR, :) = -df_upwind(rho(CUR, :) .* u(CUR, :), z, u(CUR, :)) ./ (2 * rho(CUR, :));
     V(CUR,1)=0.0;
     V(CUR,N)=0.0;
-
     %Select initial guess of the eigenvalue
     dVdz(CUR, :) = df_upwind(V(CUR, :), z, u(CUR, :));
     ddVddz(CUR, :) = ddf(V(CUR, :), z);
-    lhs1 = dot(rho(CUR, :) .* u(CUR, :), dVdz(CUR, :));
-    lhs2 = dot(rho(CUR, :) .* V(CUR, :), V(CUR, :));
-    rhs2 = dot(mu,  ddVddz);
-    Nbla(CUR, :) = (rhs2 - lhs1 - lhs2) / N;
+    lhs1 = dot(rho(CUR, 2:N-1) .* u(CUR, 2:N-1), dVdz(CUR, 2:N-1));
+    lhs2 = dot(rho(CUR, 2:N-1) .* V(CUR, 2:N-1), V(CUR, 2:N-1));
+    rhs2 = dot(mu(CUR, 2:N-1),  ddVddz(CUR, 2:N-1));
+    Nbla(CUR, :) = (rhs2 - lhs1 - lhs2) / (N-2);
+    
+    rho(NEXT, :) = rho(CUR, :);
+    u(NEXT, :) = u(CUR, :);
+    V(NEXT, :) = V(CUR, :);
+    Nbla(NEXT, :) = Nbla(CUR, :);
+    T(NEXT, :) = T(CUR, :);
+    Y(NEXT, :, :) = Y(CUR, :, :);
     
     %% Solve 
     global_converged = false;
     global_iter_cnt = 0;
     while(~global_converged)
         global_iter_cnt = global_iter_cnt + 1;
+        fprintf('Global iteration: %d\n', global_iter_cnt);
         
         %% Update properties
         for i = 1:N
@@ -113,6 +123,102 @@ function SolveFlame4(mdot_f, mdot_o, L, N, output_dir)
             RS(CUR,i) = dot(w, h); % J / (m^3 * s)
             RR(CUR,:, i) = w.* MW; % Kg / (m^3 * s)
         end
+        
+        %% Plot monitor figures
+        figure(1);
+        subplot(3, 6, 1)
+        plot(z, T(CUR, :))
+        title('$$T$$','Interpreter','latex');
+        xlabel('z / m')
+        ylabel('K')
+
+        subplot(3, 6, 2)
+        plot(z, rho(CUR, :))
+        title('$$\rho$$','Interpreter','latex');
+        xlabel('z / m');
+        ylabel('Kg\cdotm^{-3}');
+
+        subplot(3, 6, 3)
+        plot(z, u(CUR, :) );
+        title('$$u$$','Interpreter','latex')
+        xlabel('z / m');
+        ylabel('m/s');
+
+        subplot(3, 6, 4)
+        plot(z, -RS(CUR, :));
+        title('$$-\sum{h_k\dot{\omega}_k}$$','Interpreter','latex')
+        xlabel('z / m');
+        ylabel('J\cdotm^{-3}\cdots^{-1}');
+
+        subplot(3, 6, 5)
+        plot(z, squeeze(Y(CUR, no_idx, :)))
+        title('Y_{NO}');
+        xlabel('z / m');
+
+        subplot(3, 6, 6)
+        plot(z, squeeze(Y(CUR, co_idx, :)))
+        title('Y_{CO}');
+        xlabel('z / m');
+
+        subplot(3, 6, 7)
+        plot(z, squeeze(Y(CUR, ch4_idx, :)))
+        title('Y_{CH4}');
+        xlabel('z / m');
+
+        subplot(3, 6, 8)
+        plot(z, squeeze(Y(CUR, o2_idx, :)))
+        title('Y_{O2}');
+        xlabel('z / m');
+
+        subplot(3, 6, 9)
+        plot(z, squeeze(Y(CUR, co2_idx, :)))
+        title('Y_{CO2}')
+        xlabel('z / m')
+
+        subplot(3, 6, 10)
+        plot(z, squeeze(Y(CUR, h2o_idx, :)))
+        title('Y_{H2O}')
+        xlabel('z / m')
+
+        subplot(3, 6, 11)
+        plot(z, squeeze(Y(CUR, h2_idx, :)))
+        title('Y_{H2}')
+        xlabel('z / m')
+
+        subplot(3, 6, 12)
+        plot(z, squeeze(Y(CUR, n2_idx, :)))
+        title('Y_{N2}')
+        xlabel('z / m')
+
+        subplot(3, 6, 13)
+        plot(z, squeeze(RR(CUR, ch4_idx, :)))
+        title('$$\dot{\omega}_{CH_4}$$','Interpreter','latex');
+        xlabel('z / m')
+        ylabel('Kg\cdotm^{-3}\cdots^{-1}')
+
+        subplot(3, 6, 14)
+        plot(z, squeeze(RR(CUR, o2_idx, :)))
+        title('$$\dot{\omega}_{O_2}$$','Interpreter','latex');
+        xlabel('z / m')
+        ylabel('Kg\cdotm^{-3}\cdots^{-1}')
+
+        subplot(3, 6, 15)
+        plot(z, squeeze(RR(CUR, co2_idx, :)))
+        title('$$\dot{\omega}_{CO_2}$$','Interpreter','latex');
+        xlabel('z / m')
+        ylabel('Kg\cdotm^{-3}\cdots^{-1}')
+
+        subplot(3, 6, 16)
+        plot(z, squeeze(RR(CUR, h2o_idx, :)))
+        title('$$\dot{\omega}_{H_2O}$$','Interpreter','latex');
+        xlabel('z / m')
+        ylabel('Kg\cdotm^{-3}\cdots^{-1}')
+
+        subplot(3, 6, 17)
+        plot(z, squeeze(RR(CUR, h2_idx, :)))
+        title('$$\dot{\omega}_{H_2}$$','Interpreter','latex');
+        xlabel('z / m')
+        ylabel('Kg\cdotm^{-3}\cdots^{-1}')
                 
         %% Calcaulate derivatives
         dVdz(CUR, :) = df_upwind(V(CUR, :), z, u(CUR, :));
@@ -128,91 +234,88 @@ function SolveFlame4(mdot_f, mdot_o, L, N, output_dir)
        
         %% Calculate residuals
         cnt = 1;
-        for i = 1:N
+        for i = 2:N-1
+            % u
+            F(CUR, cnt) = (rho(CUR, i+1) * u(CUR, i+1) - rho(CUR, i) * u(CUR, i))/(z(i+1) - z(i)) + rho(CUR, i) * V(CUR, i) + rho(CUR, i+1) * V(CUR, i+1);
+            cnt = cnt +1;
+            % V
+            F(CUR, cnt) = rho(CUR, i)*u(CUR, i)*dVdz(CUR,i)+rho(CUR,i)*V(CUR,i)^2 + Nbla(CUR, i) - mu(CUR,i)*ddVddz(CUR,i);
+            cnt = cnt + 1;
+            % T
             F(CUR, cnt) = rho(CUR, i) * cp(CUR,i) * u(CUR, i) * dTdz(CUR,i) -lambda(CUR,i) * ddTddz(CUR,i) + RS(CUR,i);
             cnt = cnt + 1;
+            % Lambda
+            if i == 2
+                F(CUR, cnt) = rho(CUR, i) * u(CUR, i) - mdot_L;
+            else
+                F(CUR, cnt) = Nbla(CUR, i) - Nbla(CUR, i-1);
+            end
+            cnt = cnt + 1;
+            % Yk
             for k = 1:K
                 F(CUR, cnt) = rho(CUR, i)*u(CUR, i)*dYdz(CUR,k, i)-D(CUR,k,i)*ddYddz(CUR,k,i)-RR(CUR,k, i);
                 cnt = cnt + 1;
             end
-            F(CUR, cnt) = rho(CUR, i)*u(CUR, i)*dVdz(CUR,i)+rho(CUR,i)*V(CUR,i)^2 + Nbla(CUR, i) - mu(CUR,i)*ddVddz(CUR,i);
+        end
+        
+        %% Time-stepping
+        h = 1e-8;
+        cnt = 1;
+        for i = 2:N-1
+            % u
             cnt = cnt + 1;
-        end
-        
-        %% Calculate the Jacobian by finite difference perturbations
-        for j = 1:unknown_num
-            %% var base init
-            rho(NEXT, :) = rho(CUR, :);
-            u(NEXT, :) = u(CUR, :);
-            V(NEXT, :) = V(CUR, :);
-            Nbla(NEXT, :) = Nbla(CUR, :);
-            T(NEXT, :) = T(CUR, :);
-            Y(NEXT, :, :) = Y(CUR, :, :);
-            %% add perturbation
-            node_idx = ceil(j / C);
-            var_idx = mod(j, C);
-            if  var_idx == 1
-                delta = perturbation_delta(r, a, T(CUR, node_idx));
-                T(NEXT, node_idx) = T(CUR, node_idx) + delta;
-            elseif var_idx == 0
-                delta = perturbation_delta(r, a, Nbla(CUR, node_idx));
-                Nbla(NEXT, node_idx) = Nbla(CUR, node_idx) + delta;
-            else
-                spec_idx = var_idx - 1;
-                delta = perturbation_delta(r, a, Y(CUR, spec_idx, node_idx));
-                Y(NEXT, spec_idx, node_idx) = Y(CUR, spec_idx, node_idx) + delta;
-            end
-            %% update properties
-            for i = 1:N
-                local_T = T(NEXT, i);
-                set(gas, 'T', local_T, 'P', P, 'Y', squeeze(Y(NEXT, :, i)));
-                mu(NEXT,i) = viscosity(gas);
-                lambda(NEXT,i) = thermalConductivity(gas);
-                cp(NEXT,i) = cp_mass(gas);
-                D(NEXT,:, i) = lambda(NEXT,i) / (rho(NEXT, i) * cp(NEXT, i) * Le);
-                w = netProdRates(gas); % kmol / (m^3 * s)
-                h = enthalpies_RT(gas) * local_T * gasconstant; % J/Kmol
-                RS(NEXT,i) = dot(w, h); % J / (m^3 * s)
-                RR(NEXT,:, i) = w.* MW; % Kg / (m^3 * s)
-            end
-            %% compute derivatives
-            dVdz(NEXT, :) = df_upwind(V(NEXT, :), z,  u(NEXT, :));
-            dTdz(NEXT, :) = df_upwind(T(NEXT, :), z, u(NEXT, :));
+            % V
+            V(NEXT, i) = V(CUR, i) - h / rho(CUR, i) * F(CUR, cnt);
+            cnt = cnt + 1;
+            % T
+            T(NEXT, i) = T(CUR, i) - h / (rho(CUR, i)*cp(CUR, i)) * F(CUR, cnt);
+            cnt = cnt + 1;
+            % Nbla
+            cnt = cnt + 1;
+            % Yk
             for k = 1:K
-                dYdz(NEXT, k, :) = df_upwind(Y(NEXT, k, :), z, u(NEXT, :));
-            end
-            ddVddz(NEXT, :) = ddf(V(NEXT, :), z);
-            ddTddz(NEXT, :) = ddf(T(NEXT, :), z);
-             for k = 1:K
-                ddYddz(NEXT, k, :) = ddf(Y(NEXT, k, :), z);
-            end
-            %% calculate residuals
-            cnt = 1;
-            for i = 1:N
-                F(NEXT, cnt) = rho(NEXT, i) * cp(NEXT,i) * u(NEXT, i) * dTdz(NEXT,i) -lambda(NEXT,i) * ddTddz(NEXT,i) + RS(NEXT,i);
-                cnt = cnt + 1;
-                for k = 1:K
-                    F(NEXT, cnt) = rho(NEXT, i)*u(NEXT, i)*dYdz(NEXT,k, i)-D(NEXT,k,i)*ddYddz(NEXT,k,i)-RR(NEXT,k, i);
-                    cnt = cnt + 1;
-                end
-                F(NEXT, cnt) = rho(NEXT, i)*u(NEXT, i)*dVdz(NEXT,i)+rho(NEXT,i)*V(NEXT,i)^2 + Nbla(NEXT, i) - mu(NEXT,i)*ddVddz(NEXT,i);
+                Y(NEXT, k, i) = Y(CUR, k, i) - h / rho(CUR, i) * F(CUR, cnt);
+                Y(NEXT, k, i) = max(Y(NEXT, k, i), 0.0);
                 cnt = cnt + 1;
             end
-            %% update column
-            for i = 1:unknown_num
-                J(i, j) = (F(NEXT, i) - F(CUR, i))/delta;
-            end
+            % Species Normalization
+            y_tmp =  sum(Y(NEXT, :, i));
+            Y(NEXT, :, i) = Y(NEXT, :, i) / y_tmp;
+        end
+        % Correct Nbla
+        lhs1 = dot(rho(CUR, 2:N-1) .* u(CUR, 2:N-1), dVdz(CUR, 2:N-1));
+        lhs2 = dot(rho(CUR, 2:N-1) .* V(CUR, 2:N-1), V(CUR, 2:N-1));
+        rhs2 = dot(mu(CUR, 2:N-1),  ddVddz(CUR, 2:N-1));
+        Nbla(NEXT, :) = (rhs2 - lhs1 - lhs2) / (N-2);
+        % Update density
+        for i = 2:N-1
+            rho(NEXT, i) = P / (gasconstant * T(NEXT, i) * sum(squeeze(Y(NEXT, :, i)) ./ MW'));
+        end
+        % Update u
+        i = N-1;
+        u_tmp1 = zeros(1, N);
+        u_tmp1(N) = u(CUR, N);
+        while i >=2
+            u_tmp1(i) = (rho(NEXT, i+1) * u_tmp1(i+1) + 2*(z(i+1) - z(i))*rho(NEXT, i)*V(NEXT, i))/rho(NEXT, i);
+            i = i - 1;
+        end
+        i = 2;
+        u_tmp2 = zeros(1, N);
+        u_tmp2(1) = u(CUR, 1);
+        while i <=N-1
+            u_tmp2(i) = (rho(NEXT, i-1)*u_tmp2(i-1) - 2*(z(i) - z(i-1))*rho(NEXT, i-1)*V(NEXT, i-1))/rho(NEXT, i);
+            i = i + 1;
+        end
+        for i = 2:N-1
+            u(NEXT, i) = relaxation(u_tmp1(i), u_tmp2(i), 0.5);
         end
         
-        %% Solve the Jacobian
-        dphi = solBlkDiagMat(J, F(CUR, :)');
-        for j = 1:unknown_num
-            
-        end
+        %% Report 
+        fprintf("\tmax Y_CO2 = %f\n", max(Y(NEXT, co2_idx, :)));
         
-        
-        
-        
+        %% Next round
+        CUR = 3 - CUR;
+        NEXT = 3 - NEXT;
     end
     
     %% Output        
@@ -264,7 +367,7 @@ end
 function [z, u, T, y] = DiffFlameSim(domain_length, p, tin, mdot_f, mdot_o)
     runtime = cputime;  % Record the starting time
 
-    initial_grid = domain_length*linspace(0,1, 251);  % Units: m
+    initial_grid = domain_length*linspace(0,1, 51);  % Units: m
     tol_ss    = [1e-4 1e-9];        % [rtol atol] for steady-state problem
     tol_ts    = [1e-4 1e-9];        % [rtol atol] for time stepping
     loglevel  = 1;                      % Amount of diagnostic output (0 to 5)
