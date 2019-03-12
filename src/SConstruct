@@ -1,0 +1,10 @@
+env = Environment()
+
+env.Append(CCFLAGS='-g',
+           CPPPATH=[],
+           LIBS=['cantera', 'sundials_cvodes', 'sundials_ida', 'sundials_nvecserial', 'lapack', 'blas'],
+           LIBPATH=['/usr/local/lib'],
+           LINKFLAGS=['-g', '-pthread'])
+
+diffflame = env.Program('main.out', 'main.cpp')
+Default(diffflame)
