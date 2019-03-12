@@ -4,6 +4,46 @@ import numpy as np
 import cantera as ct
 import re
 
+
+def relaxation(a, b, x: float):
+    return (1 - x) * a + x * b
+
+
+def df_central(f, x):
+    pnt_num = len(x)
+    ret = np.zeros(pnt_num)
+    ret[0] = ((x[1] - x[0]) / (x[2] - x[0]) * (f[2] - f[0]) - (x[2] - x[0]) / (x[1] - x[0]) * (f[1] - f[0])) / (
+            x[1] - x[2])
+    for i in range(1, pnt_num - 1):
+        ret[i] = ((x[i] - x[i - 1]) / (x[i + 1] - x[i]) * (f[i + 1] - f[i]) - (x[i + 1] - x[i]) / (x[i] - x[i - 1]) * (
+                f[i - 1] - f[i])) / (x[i + 1] - x[i - 1])
+    ret[-1] = ((x[-1] - x[-3]) / (x[-1] - x[-2]) * (f[-2] - f[-1]) - (x[-1] - x[-2]) / (x[-1] - x[-3]) * (
+            f[-3] - f[-1])) / (x[-3] - x[-2])
+    return ret
+
+
+def df_upwind(f, x, upwind_indicator):
+    pnt_num = len(x)
+    ret = np.zeros(pnt_num)
+    ret[0] = (f[1] - f[0]) / (x[1] - x[0])
+    for i in range(1, pnt_num - 1):
+        s = -1 if upwind_indicator[i] > 0 else 1
+        ret[i] = (f[i + s] - f[i]) / (x[i + s] - x[i])
+    ret[-1] = (f[-1] - f[-2]) / (x[-1] - x[-2])
+    return ret
+
+
+def ddf(f, x):
+    pnt_num = len(x)
+    ret = np.zeros(pnt_num)
+    ret[0] = 2.0 / (x[2] - x[1]) * ((f[2] - f[0]) / (x[2] - x[0]) - (f[1] - f[0]) / (x[1] - x[0]))
+    for i in range(1, pnt_num - 1):
+        ret[i] = 2.0 / (x[i + 1] - x[i - 1]) * (
+                (f[i - 1] - f[i]) / (x[i] - x[i - 1]) + (f[i + 1] - f[i]) / (x[i + 1] - x[i]))
+    ret[-1] = 2.0 / (x[-3] - x[-2]) * ((f[-2] - f[-1]) / (x[-1] - x[-2]) - (f[-3] - f[-1]) / (x[-1] - x[-3]))
+    return ret
+
+
 if len(sys.argv) != 3:
     print("Usage: python3 phy2z.py RawData.txt DstDir")
     exit(-1)
@@ -75,6 +115,8 @@ for n in range(N):
     Y_N[n] = gas.elemental_mass_fraction('N')
     MixFrac[n] = calc_mix_frac(loc_y)
 
+dZdn = df_upwind(MixFrac, x, u)
+
 
 fn = "mf={:f}_mo={:f}_transformed.txt".format(mf, mo)
 fp = os.path.join(output_dir, fn)
@@ -92,5 +134,5 @@ for n in range(N):
 
     content = '{:>18.8e}'.format(loc_density)
     content += '{:>18.8e}{:>18.8e}{:>18.8e}{:>18.8e}'.format(Y_C[n], Y_H[n], Y_O[n], Y_N[n])
-    content += '{:>18.8e}\n'.format(MixFrac[n])
+    content += '{:>18.8e}{:>18.8e}\n'.format(MixFrac[n], dZdn[n])
     fout.write(content)
