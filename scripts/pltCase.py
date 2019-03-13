@@ -40,7 +40,7 @@ Y_AR = data[:, 53]
 
 fig1 = plt.figure()
 Yax = fig1.add_subplot(1,1,1)
-Yax.set_title("mf={:f} mo={:f}".format(mf, mo))
+Yax.set_title("mf={} mo={}".format(mf, mo))
 Yax.plot(z, 10*Y_AR, label='Y_AR x 10')
 Yax.plot(z, Y_CH4, label='Y_CH4')
 Yax.plot(z, Y_H2, label='Y_H2')
