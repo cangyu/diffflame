@@ -52,14 +52,14 @@ void diffflame(double mdot_f, double mdot_o, double domain_length)
 
     // Inlet boundaries of flow field
     Inlet1D fuel_inlet;
-	fuel_inlet.setMoleFractions("CH4:0.5, H2:0.5");
-	fuel_inlet.setMdot(mdot_f);
-	fuel_inlet.setTemperature(T_f);
+    fuel_inlet.setMoleFractions("CH4:0.5, H2:0.5");
+    fuel_inlet.setMdot(mdot_f);
+    fuel_inlet.setTemperature(T_f);
 
     Inlet1D oxidizer_inlet;
-	oxidizer_inlet.setMoleFractions("N2:0.78, O2:0.21, AR:0.01");
-	oxidizer_inlet.setMdot(mdot_o);
-	oxidizer_inlet.setTemperature(T_o);
+    oxidizer_inlet.setMoleFractions("N2:0.78, O2:0.21, AR:0.01");
+    oxidizer_inlet.setMdot(mdot_o);
+    oxidizer_inlet.setTemperature(T_o);
 
     // Interior of flow field
     const vector<double> tol_ss{1.0e-5, 1.0e-9}; // [rtol atol] for steady-state
@@ -68,23 +68,23 @@ void diffflame(double mdot_f, double mdot_o, double domain_length)
     flow.setAxisymmetricFlow();
     flow.setupGrid(N, z.data());
     Transport* tr = newTransportMgr("UnityLewis", &gas);
-	flow.setTransport(*tr);
-	flow.setKinetics(gas);
+    flow.setTransport(*tr);
+    flow.setKinetics(gas);
     flow.setSteadyTolerances(tol_ss[0], tol_ss[1]);
     flow.setTransientTolerances(tol_ts[0], tol_ts[1]);
 
     // The simulation domain(for calculating the residuals)
-	vector<Domain1D*> domains{&fuel_inlet, &flow, &oxidizer_inlet};
-	Sim1D flame(domains);
+    vector<Domain1D*> domains{&fuel_inlet, &flow, &oxidizer_inlet};
+    Sim1D flame(domains);
     
     // Init
     const auto Teq = relaxation(T_f, T_o, 0.5);
     gas.setState_TPX(Teq, P, "CH4:1.0, H2:1.0, N2:9.2857, O2: 2.5, AR:0.1190");
     try {
-		gas.equilibrate("HP");
-	} catch (CanteraError& err) {
-		cout << err.what() << std::endl;
-	}
+        gas.equilibrate("HP");
+    } catch (CanteraError& err) {
+        cout << err.what() << std::endl;
+    }
     const auto Tad = gas.temperature();
     cout << "Tad = " << Tad << "K" << endl;
     vector<double> Xst(K), Yst(K);
@@ -102,8 +102,8 @@ void diffflame(double mdot_f, double mdot_o, double domain_length)
     const double rho_o = calc_density(P, T_o, Y_o.data(), MW.data(), K);
     const double u_o = -mdot_o / rho_o;
 
-    vector_fp locs{0, 0.5, 1.0};
-	vector_fp values{T_f, Tad, T_o};
+    vector_fp locs{0, 0.0, 1.0};
+    vector_fp values{T_f, Tad, T_o};
     flame.setInitialGuess("T", locs, values);
 
     for(auto k = 0; k < K; ++k)
@@ -118,24 +118,24 @@ void diffflame(double mdot_f, double mdot_o, double domain_length)
     cout << "B.C. at Fuel inlet:" << endl;
     cout << "    Density: " << rho_f << " Kg/m^3" << endl;
     cout << "    Velocity: " << u_f << " m/s" << endl;
-	fuel_inlet.showSolution(nullptr);
+    fuel_inlet.showSolution(nullptr);
     cout << "B.C. at Oxidizer inlet:" << endl;
     cout << "    Density: " << rho_o << " Kg/m^3" << endl;
     cout << "    Velocity: " << u_o << " m/s" << endl;
-	oxidizer_inlet.showSolution(nullptr);
+    oxidizer_inlet.showSolution(nullptr);
 
     // Solve
     const int IdxOfFlowDomain = 1;
-	const int MaxNumOfPnt = 501;
+    const int MaxNumOfPnt = 501;
     flame.setMaxGridPoints(IdxOfFlowDomain,MaxNumOfPnt);
     const double ratio=200.0;
     const double slope=0.1;
     const double curve=0.2;
     const double prune=-0.1;
-	flame.setRefineCriteria(IdxOfFlowDomain,ratio,slope,curve,prune);   
+    flame.setRefineCriteria(IdxOfFlowDomain,ratio,slope,curve,prune);   
     flow.setPressure(P);
     flow.solveEnergyEqn(); 
-	flame.solve(1,true);
+    flame.solve(1,true);
 
     // Output
     stringstream ss;
