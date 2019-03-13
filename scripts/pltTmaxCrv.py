@@ -15,16 +15,6 @@ def relaxation(a, b, alpha):
     return (1 - alpha) * a + alpha * b
 
 
-if len(sys.argv) != 2:
-    print("Usage: python3 pltTmaxCrv.py data_dir")
-    exit(-1)
-else:
-    data_path = sys.argv[1]
-    if not os.path.exists(data_path):
-        print("Input data directory not found!")
-        exit(-2)
-
-
 Z_st = 0.0496
 
 T_stat = []
@@ -35,6 +25,10 @@ m_f = []
 m_o = []
 kai_ignition = []
 
+data_path = os.path.join('..', 'data')
+if not os.path.exists(data_path):
+    print("Input directory not found!")
+    exit(-1)
 
 data_set = {}
 for f in os.listdir(data_path):
