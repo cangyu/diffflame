@@ -2,7 +2,6 @@ import os
 import sys
 import numpy as np
 import cantera as ct
-import re
 
 
 def relaxation(a, b, x: float):
@@ -87,9 +86,6 @@ def calc_mix_frac(Y):
 
 data = np.loadtxt(raw_data_path, skiprows=1)
 N = len(data)
-mdot_str = re.findall(r'\d+\.?\d*e?[-+]?\d+', raw_data_path)
-mf = float(mdot_str[0])
-mo = float(mdot_str[1])
 
 x = data[:, 0]
 u = data[:, 1]
@@ -124,19 +120,17 @@ kai = np.zeros(N)
 for n in range(N):
     kai[n] = 2 * D[n] * pow(dZdn[n], 2)
 
-
-fn = "mf={}_mo={}_transformed.txt".format(mf, mo)
+fn = os.path.split(raw_data_path)[-1].split('.txt')[0][:-3] + "transformed.txt"
 fp = os.path.join(output_dir, fn)
 
 fout = open(fp, 'w')
-
 header = "{:>18s}".format("rho")
 header += "{:>18s}{:>18s}{:>18s}{:>18s}".format("Y_C", "Y_H", "Y_O", "Y_N")
 header += "{:>18s}{:>18s}{:>18s}{:>18s}\n".format('Z', 'dZdn', 'D', 'kai')
 fout.write(header)
-
 for n in range(N):
     content = '{:>18.8e}'.format(rho[n])
     content += '{:>18.8e}{:>18.8e}{:>18.8e}{:>18.8e}'.format(Y_C[n], Y_H[n], Y_O[n], Y_N[n])
     content += '{:>18.8e}{:>18.8e}{:>18.8e}{:>18.8e}\n'.format(MixFrac[n], dZdn[n], D[n], kai[n])
     fout.write(content)
+fout.close()
