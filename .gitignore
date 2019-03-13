@@ -5,3 +5,6 @@
 *.xml
 *.xls
 ChemTbl/
+*.o
+*.out
+*.dblite
