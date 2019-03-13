@@ -141,6 +141,7 @@ void diffflame(double mdot_f, double mdot_o, double domain_length)
     stringstream ss;
     ss << "mf=" << mdot_f << "_mo=" << mdot_o << "_raw.txt";
     ofstream fout(ss.str());
+    
     fout << setw(18) << "x" << setw(18) << "u" << setw(18) << "V" << setw(18) << "T" << setw(18) << "Lambda";
     for(auto k = 0; k < K; ++k)
     {
@@ -148,12 +149,17 @@ void diffflame(double mdot_f, double mdot_o, double domain_length)
         fout << setw(18) << yk_name;
     }
     fout << endl;
+
+    double Tmax = 0.0;
     for(auto i = 0; i < flow.nPoints(); ++i)
     {
         fout << setw(18) << setprecision(6) << scientific << flow.grid(i);
         fout << setw(18) << setprecision(6) << scientific << flame.value(IdxOfFlowDomain, 0, i); // u
         fout << setw(18) << setprecision(6) << scientific << flame.value(IdxOfFlowDomain, 1, i); // V
-        fout << setw(18) << setprecision(6) << scientific << flame.value(IdxOfFlowDomain, 2, i); // T
+        double loc_T = flame.value(IdxOfFlowDomain, 2, i);
+        fout << setw(18) << setprecision(6) << scientific << loc_T; // T
+        if(loc_T > Tmax)
+            Tmax = loc_T;
         fout << setw(18) << setprecision(6) << scientific << flame.value(IdxOfFlowDomain, 3, i); // Lambda
         for(auto k = 0; k < K; ++k)
         {
@@ -167,6 +173,9 @@ void diffflame(double mdot_f, double mdot_o, double domain_length)
         fout << endl;
     }
     fout.close();
+
+    // Report 
+    cout << "Tmax=" << Tmax << "K" << endl;
 }
 
 int main(int argc, char *argv[])
