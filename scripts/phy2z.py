@@ -58,6 +58,7 @@ else:
         exit(-2)
 
 gas = ct.Solution('gri30.cti')
+gas.transport_model = 'UnityLewis'
 MW = gas.molecular_weights
 K = gas.n_species
 P = ct.one_atm
@@ -66,7 +67,7 @@ CH4_IDX = gas.species_index('CH4')
 H2_IDX = gas.species_index('H2')
 O2_IDX = gas.species_index('O2')
 
-def calc_rho(P, T, Y):
+def calc_density(P, T, Y):
     ret = 0.0
     for k in range(K):
         ret += Y[k] / MW[k]
@@ -99,40 +100,45 @@ Y = np.zeros([gas.n_species, N])
 for k in range(gas.n_species):
     Y[k] = data[:, 5 + k]
 
+rho = np.zeros(N)
 Y_C = np.zeros(N)
 Y_H = np.zeros(N)
 Y_O = np.zeros(N)
 Y_N = np.zeros(N)
 MixFrac = np.zeros(N)
 dZdn = np.zeros(N)
+D = np.zeros(N)
+kai = np.zeros(N)
 
 for n in range(N):
     loc_y = np.array([Y[k, n] for k in range(K)])
-    gas.TPY = P, T[n], loc_y
+    gas.TPY = T[n], P, loc_y
+    rho[n] = calc_density(P, T[n], loc_y)
     Y_C[n] = gas.elemental_mass_fraction('C')
     Y_H[n] = gas.elemental_mass_fraction('H')
     Y_O[n] = gas.elemental_mass_fraction('O')
     Y_N[n] = gas.elemental_mass_fraction('N')
     MixFrac[n] = calc_mix_frac(loc_y)
+    D[n] = gas.thermal_conductivity / (rho[n]*gas.cp_mass)
 
 dZdn = df_upwind(MixFrac, x, u)
 
+for n in range(N):
+    kai[n] = 2 * D[n] * pow(dZdn[n], 2)
 
-fn = "mf={:f}_mo={:f}_transformed.txt".format(mf, mo)
+
+fn = "mf={}_mo={}_transformed.txt".format(mf, mo)
 fp = os.path.join(output_dir, fn)
 
 fout = open(fp, 'w')
 
 header = "{:>18s}".format("rho")
 header += "{:>18s}{:>18s}{:>18s}{:>18s}".format("Y_C", "Y_H", "Y_O", "Y_N")
-header += "{:>18s}{:>18s}{:>18s}\n".format('Z', 'dZdn', 'kai')
+header += "{:>18s}{:>18s}{:>18s}{:>18s}\n".format('Z', 'dZdn', 'D', 'kai')
 fout.write(header)
 
 for n in range(N):
-    loc_y = np.array([Y[k, n] for k in range(K)])
-    loc_density = calc_rho(P, T[n], loc_y)
-
-    content = '{:>18.8e}'.format(loc_density)
+    content = '{:>18.8e}'.format(rho[n])
     content += '{:>18.8e}{:>18.8e}{:>18.8e}{:>18.8e}'.format(Y_C[n], Y_H[n], Y_O[n], Y_N[n])
-    content += '{:>18.8e}{:>18.8e}\n'.format(MixFrac[n], dZdn[n])
+    content += '{:>18.8e}{:>18.8e}{:>18.8e}{:>18.8e}\n'.format(MixFrac[n], dZdn[n], D[n], kai[n])
     fout.write(content)
