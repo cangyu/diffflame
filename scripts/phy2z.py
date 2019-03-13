@@ -108,8 +108,6 @@ Y_N = np.zeros(N)
 MixFrac = np.zeros(N)
 dZdn = np.zeros(N)
 D = np.zeros(N)
-kai = np.zeros(N)
-
 for n in range(N):
     loc_y = np.array([Y[k, n] for k in range(K)])
     gas.TPY = T[n], P, loc_y
@@ -120,9 +118,9 @@ for n in range(N):
     Y_N[n] = gas.elemental_mass_fraction('N')
     MixFrac[n] = calc_mix_frac(loc_y)
     D[n] = gas.thermal_conductivity / (rho[n]*gas.cp_mass)
-
+    
 dZdn = df_upwind(MixFrac, x, u)
-
+kai = np.zeros(N)
 for n in range(N):
     kai[n] = 2 * D[n] * pow(dZdn[n], 2)
 
