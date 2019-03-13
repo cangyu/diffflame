@@ -55,5 +55,4 @@ Yax.legend()
 Tax = Yax.twinx()
 Tax.plot(z, T, 'r')
 
-
 plt.show()
