@@ -29,6 +29,9 @@ data_path = os.path.join('..', 'data')
 if not os.path.exists(data_path):
     print("Input directory not found!")
     exit(-1)
+output_dir = os.path.join('..', 'ChemTbl')
+if not os.path.exists(output_dir):
+    os.mkdir(output_dir)
 
 data_set = {}
 for f in os.listdir(data_path):
@@ -112,7 +115,8 @@ for case_name in paired_set:
 
 # Save all solution
 n = len(kai_stat)
-with open('all_solution.txt', 'w') as f:
+sol_path = os.path.join(output_dir, 'all_solution.txt')
+with open(sol_path, 'w') as f:
     for i in range(n):
         f.write('{:e}\t{:e}\n'.format(kai_stat[i], T_stat[i]))
 
@@ -129,7 +133,8 @@ for k in range(n):
     sheet.write(k + 1, 1, m_o[k])
     sheet.write(k + 1, 2, T_ignition[k])
     sheet.write(k + 1, 3, kai_ignition[k])
-book.save('ignition_solution.xls')
+xls_path = os.path.join(output_dir, 'ignition_solution.xls')
+book.save(xls_path)
 
 # Plot
 plt.scatter(np.log10(kai_stat), T_stat)
@@ -137,4 +142,5 @@ plt.xlabel('log10(kai_st)')
 plt.ylabel('Tmax')
 fig = plt.gcf()
 fig.set_size_inches(18.5, 10.5)
-fig.savefig('S-Curve.png', dpi=300)
+pic_path = os.path.join(output_dir, 'S-Curve.png')
+fig.savefig(pic_path, dpi=300)
