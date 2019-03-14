@@ -26,7 +26,8 @@ n = len(data)
 def counterflow(x):
     mf = x[0]
     mo = x[1]
-    cur_case_output_name = 'mf={}_mo={}_raw.txt'.format(mf, mo)
+    domain_length = x[2]
+    cur_case_output_name = 'mf={}_mo={}_L={}_raw.txt'.format(mf, mo, domain_length)
 
     dup_exist = False
     if os.path.exists(os.path.join(output_dir, cur_case_output_name)):
@@ -34,7 +35,7 @@ def counterflow(x):
         dup_exist = True
 
     if (not dup_exist) or (dup_exist and OverwriteExisting):
-        counterflow=subprocess.Popen(["../src/main.out", "{}".format(mf), "{}".format(mo)], cwd=output_dir)
+        counterflow=subprocess.Popen(["../src/main.out", "{}".format(mf), "{}".format(mo), "{}".format(domain_length)], cwd=output_dir)
         counterflow.wait()
 
 p = Pool(NumOfProc)

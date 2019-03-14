@@ -140,7 +140,7 @@ void diffflame(double mdot_f, double mdot_o, double domain_length)
 
     // Output
     stringstream ss;
-    ss << "mf=" << mdot_f << "_mo=" << mdot_o << "_raw.txt";
+    ss << "mf=" << mdot_f << "_mo=" << mdot_o << "_L=" << domain_length << "_raw.txt";
     ofstream fout(ss.str());
     
     fout << setw(18) << "x" << setw(18) << "u" << setw(18) << "V" << setw(18) << "T" << setw(18) << "Lambda";

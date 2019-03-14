@@ -13,8 +13,9 @@ else:
 mf_left, mf_right = map(float, input('[mf_begin, mf_end):').split())
 step = float(input('Step: '))
 ratio = float(input('O/F ratio: '))
+L = float(input('Domain length: '))
 
 mf = np.arange(mf_left, mf_right, step)
 for e in mf:
-    fout.write('{:e}\t{:e}\n'.format(e, e*ratio))
+    fout.write('{:>18.6e}{:>18.6e}{:>18.6e}\n'.format(e, e*ratio, L))
 fout.close()
