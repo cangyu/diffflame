@@ -2,6 +2,7 @@
 #include <fstream>
 #include <sstream>
 #include <iomanip>
+#include <cstdlib>
 #include <vector>
 #include <string>
 #include "cantera/oneD/Sim1D.h"
