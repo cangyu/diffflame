@@ -116,6 +116,7 @@ void diffflame(double mdot_f, double mdot_o, double domain_length)
     }
 
     // Report B.C.
+    cout << "Domain length: " <<  domain_length << " m" << endl;
     cout << "B.C. at Fuel inlet:" << endl;
     cout << "    Density: " << rho_f << " Kg/m^3" << endl;
     cout << "    Velocity: " << u_f << " m/s" << endl;
@@ -192,9 +193,6 @@ int main(int argc, char *argv[])
     }
     else
         return -1;
-
-    // Report
-    cout << "Domain: " << L << "m" << endl;
 
     // Solve
     try {
