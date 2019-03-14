@@ -181,15 +181,10 @@ void diffflame(double mdot_f, double mdot_o, double domain_length)
 
 int main(int argc, char *argv[])
 {   
-    double mf=0.0, mo=0.0, L=0.05;
+    double mf=0.0, mo=0.0, L=0.1;
     
     // Get input parameters
-    if(argc==3)
-    {
-        mf = atof(argv[1]);
-        mo = atof(argv[2]);
-    }
-    else if(argc == 4)
+    if(argc == 4)
     {
         mf = atof(argv[1]);
         mo = atof(argv[2]);
