@@ -31,11 +31,21 @@ def counterflow(x):
 
     dup_exist = False
     if os.path.exists(os.path.join(output_dir, cur_case_output_name)):
-        print('Case for mf={} mo={} already exists!'.format(mf, mo))
         dup_exist = True
+        info = 'Data of mf={} mo={} L={} already exists!'.format(mf, mo, domain_length)
+        if OverwriteExisting:
+            info += ' Will be Overwritten!'
+        else:
+            info += ' Skip!'
+        print(info)
 
     if (not dup_exist) or (dup_exist and OverwriteExisting):
-        counterflow=subprocess.Popen(["../src/main.out", "{}".format(mf), "{}".format(mo), "{}".format(domain_length)], cwd=output_dir)
+        prog = "../src/main.out"
+        arg1 = "{}".format(mf)
+        arg2 = "{}".format(mo)
+        arg3 = "{}".format(domain_length)
+        cmd = [prog, arg1, arg2, arg3]
+        counterflow=subprocess.Popen(cmd, cwd=output_dir)
         counterflow.wait()
 
 p = Pool(NumOfProc)
