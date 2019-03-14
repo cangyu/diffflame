@@ -24,11 +24,13 @@ def counterflow(x):
     mf = x[0]
     mo = x[1]
     cur_case_output_name = 'mf={}_mo={}_raw.txt'.format(mf, mo)
-    if not os.path.exists(os.path.join(output_dir, cur_case_output_name)):
-        counterflow=subprocess.Popen(["../src/main.out", "{:f}".format(mf), " {:f}".format(mo)], cwd=output_dir)
-        counterflow.wait()
-    else:
+
+    if os.path.exists(os.path.join(output_dir, cur_case_output_name)):
         print('Case for mf={} mo={} already exists!'.format(mf, mo))
+
+    counterflow=subprocess.Popen(["../src/main.out", "{:f}".format(mf), " {:f}".format(mo)], cwd=output_dir)
+    counterflow.wait()
+        
 
 p = Pool(os.cpu_count()//2)
 p.map(counterflow, data)

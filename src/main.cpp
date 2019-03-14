@@ -180,22 +180,27 @@ void diffflame(double mdot_f, double mdot_o, double domain_length)
 
 int main(int argc, char *argv[])
 {   
-    stringstream ss;
-    double mf=0.0, mo=0.0, L=0.1;
+    double mf=0.0, mo=0.0, L=0.05;
     
+    // Get input parameters
     if(argc==3)
     {
-        ss << argv[1] << argv[2];
-        ss >> mf >> mo;
+        mf = atof(argv[1]);
+        mo = atof(argv[2]);
     }
     else if(argc == 4)
     {
-        ss << argv[1] << argv[2] << argv[3];
-        ss >> mf >> mo >> L;
+        mf = atof(argv[1]);
+        mo = atof(argv[2]);
+        L = atof(argv[3]);
     }
     else
         return -1;
 
+    // Report
+    cout << "Domain: " << L << "m" << endl;
+
+    // Solve
     try {
         diffflame(mf, mo, L);
     } catch (CanteraError& err) {
