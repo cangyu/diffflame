@@ -4,6 +4,9 @@ import subprocess
 from multiprocessing import Pool
 import numpy as np
 
+NumOfProc = os.cpu_count()//2
+OverwriteExisting = True
+
 if len(sys.argv) != 2:
     print("Usage: python3 batchRun.py task.txt")
     exit(-1)
@@ -25,12 +28,14 @@ def counterflow(x):
     mo = x[1]
     cur_case_output_name = 'mf={}_mo={}_raw.txt'.format(mf, mo)
 
+    dup_exist = False
     if os.path.exists(os.path.join(output_dir, cur_case_output_name)):
         print('Case for mf={} mo={} already exists!'.format(mf, mo))
+        dup_exist = True
 
-    counterflow=subprocess.Popen(["../src/main.out", "{:f}".format(mf), " {:f}".format(mo)], cwd=output_dir)
-    counterflow.wait()
-        
+    if (not dup_exist) or (dup_exist and OverwriteExisting):
+        counterflow=subprocess.Popen(["../src/main.out", "{}".format(mf), "{}".format(mo)], cwd=output_dir)
+        counterflow.wait()
 
-p = Pool(os.cpu_count()//2)
+p = Pool(NumOfProc)
 p.map(counterflow, data)
