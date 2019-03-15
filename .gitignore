@@ -4,7 +4,7 @@
 *.gif
 *.xml
 *.xls
-ChemTbl/
+ChemTbl/*.dat
 *.o
 *.out
 *.dblite
