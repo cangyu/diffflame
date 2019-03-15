@@ -65,6 +65,13 @@ P = ct.one_atm
 CH4_IDX = gas.species_index('CH4')
 H2_IDX = gas.species_index('H2')
 O2_IDX = gas.species_index('O2')
+N2_IDX = gas.species_index('N2')
+AR_IDX = gas.species_index('AR')
+
+MW_C = gas.atomic_weight('C')
+MW_H = gas.atomic_weight('H')
+MW_O = gas.atomic_weight('O')
+
 
 def calc_density(P, T, Y):
     ret = 0.0
@@ -73,16 +80,45 @@ def calc_density(P, T, Y):
     ret = P / (ct.gas_constant * T * ret)
     return ret
 
+
+
+'''
+Gas: 1 CH4 + 1 H2
+Air: 0.78 N2 + 0.21 O2 + 0.01 AR
+'''
+# Mass ratio of oxidizer and fuel at stoichiometry
+s = 40/9 
+# Mass fraction of fuel in gas stream
+Yf_fu = 1.0 
+# Mass fraction of fuel in air stream
+Yf_ox = 0.0 
+# Mass fraction of C in gas stream
+Yc_fu = MW_C / (MW[CH4_IDX] + MW[H2_IDX]) 
+# Mass fraction of C in air stream
+Yc_ox = 0.0 
+# Mass fraction of H in gas stream
+Yh_fu = 6 * MW_H / (MW[CH4_IDX] + MW[H2_IDX]) 
+# Mass fraction of H in air stream
+Yh_ox = 0.0 
+# Mass fraction of O in gas stream
+Yo_fu = 0.0 
+# Mass fraction of O in air stream
+Yo_ox = 0.21 * MW[O2_IDX] / (0.21 * MW[O2_IDX] + 0.78 * MW[N2_IDX] + 0.01 * MW[AR_IDX]) 
+
+
 def calc_mix_frac(Y):
     Yf = Y[CH4_IDX] + Y[H2_IDX]
     Yo = Y[O2_IDX]
-    s = 40/9 # Mass ratio of oxidizer and fuel at stoichiometry
-    Yo_0 = 0.232 # Mixture fraction of oxidizer in air stream
-    Yf_0 = 1.0 # Mixture fraction of fuel in gas stream
-    ret = (s*Yf-Yo+Yo_0)/(s*Yf_0+Yo_0) # The mixture fraction
-    if ret < 0:
-        ret = 0.0
-    return ret
+    ret = (s*Yf-Yo+Yo_ox)/(s*Yf_fu+Yo_ox) # The mixture fraction
+    return max(ret, 0.0)
+
+
+def bilger(Yc, Yh, Yo):
+    a = 2 * (Yc - Yc_ox) / MW_C + (Yh - Yh_ox) / (2*MW_H) - 2 * (Yo - Yo_ox) / MW_O
+    b = 2 * (Yc_fu - Yc_ox) / MW_C + (Yh_fu - Yh_ox) / (2*MW_H) - 2 * (Yo_fu - Yo_ox) / MW_O
+    ret = a / b
+    return max(ret, 0.0)
+
 
 data = np.loadtxt(raw_data_path, skiprows=1)
 N = len(data)
@@ -112,7 +148,8 @@ for n in range(N):
     Y_H[n] = gas.elemental_mass_fraction('H')
     Y_O[n] = gas.elemental_mass_fraction('O')
     Y_N[n] = gas.elemental_mass_fraction('N')
-    MixFrac[n] = calc_mix_frac(loc_y)
+    # MixFrac[n] = calc_mix_frac(loc_y)
+    MixFrac[n] = bilger(Y_C[n], Y_H[n], Y_O[n])
     D[n] = gas.thermal_conductivity / (rho[n]*gas.cp_mass)
     
 dZdn = df_upwind(MixFrac, x, u)
