@@ -16,11 +16,7 @@ else:
 data = np.loadtxt(data_file_path, skiprows=1)
 N, _ = data.shape
 
-mdot_str = re.findall(r'\d+\.?\d*e?[-+]?\d+', data_file_path)
-mf = float(mdot_str[0])
-mo = float(mdot_str[1])
-mL = mf
-mR = -mo
+case_name = os.path.split(data_file_path)[-1].split('.txt')[0][:-4]
 
 z = data[:, 0]
 u = data[:, 1]
@@ -40,7 +36,7 @@ Y_AR = data[:, 53]
 
 fig1 = plt.figure()
 Yax = fig1.add_subplot(1,1,1)
-Yax.set_title("mf={} mo={}".format(mf, mo))
+Yax.set_title(case_name)
 Yax.plot(z, 10*Y_AR, label='Y_AR x 10')
 Yax.plot(z, Y_CH4, label='Y_CH4')
 Yax.plot(z, Y_H2, label='Y_H2')
