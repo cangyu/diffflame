@@ -15,6 +15,28 @@ def relaxation(a, b, alpha):
     return (1 - alpha) * a + alpha * b
 
 
+def parse_case_cfg(f):
+    left = 3
+    right = left
+    while f[right]!='_':
+        right += 1
+    mf = float(f[left:right])
+    
+    left = right + 4
+    right = left
+    while f[right] != '_':
+        right += 1
+    mo = float(f[left:right])
+
+    left = right + 3
+    right = left
+    while f[right] != '_':
+        right += 1
+    L = float(f[left:right])
+
+    return mf, mo, L
+
+
 Z_st = 0.0496
 
 T_stat = []
@@ -23,6 +45,7 @@ kai_stat = []
 T_ignition = []
 m_f = []
 m_o = []
+L = []
 kai_ignition = []
 
 data_path = os.path.join('..', 'data')
@@ -106,8 +129,10 @@ for case_name in paired_set:
         r = re.split(r'[_ \n]', case_name)
         cur_mf = float(r[0][3:])
         cur_mo = float(r[1][3:])
+        cur_L = float(r[2][2:])
         m_f.append(cur_mf)
         m_o.append(cur_mo)
+        L.append(cur_L)
         T_ignition.append(cur_Tmax)
         kai_ignition.append(kai_st)
 
@@ -122,17 +147,72 @@ with open(sol_path, 'w') as f:
 
 # Save ignition solution
 book = xlwt.Workbook(encoding='utf-8', style_compression=0)
-sheet = book.add_sheet('solution', cell_overwrite_ok=True)
-sheet.write(0, 0, 'm_f')
-sheet.write(0, 1, 'm_o')
-sheet.write(0, 2, 'T_max')
-sheet.write(0, 3, 'kai_st')
+sheet1 = book.add_sheet('L=1cm', cell_overwrite_ok=True)
+sheet1.write(0, 0, 'm_f')
+sheet1.write(0, 1, 'm_o')
+sheet1.write(0, 2, 'T_max')
+sheet1.write(0, 3, 'kai_st')
+sheet1_cnt = 1
+sheet2 = book.add_sheet('L=2cm', cell_overwrite_ok=True)
+sheet2.write(0, 0, 'm_f')
+sheet2.write(0, 1, 'm_o')
+sheet2.write(0, 2, 'T_max')
+sheet2.write(0, 3, 'kai_st')
+sheet2_cnt = 1
+sheet3 = book.add_sheet('L=5cm', cell_overwrite_ok=True)
+sheet3.write(0, 0, 'm_f')
+sheet3.write(0, 1, 'm_o')
+sheet3.write(0, 2, 'T_max')
+sheet3.write(0, 3, 'kai_st')
+sheet3_cnt = 1
+sheet4 = book.add_sheet('L=8cm', cell_overwrite_ok=True)
+sheet4.write(0, 0, 'm_f')
+sheet4.write(0, 1, 'm_o')
+sheet4.write(0, 2, 'T_max')
+sheet4.write(0, 3, 'kai_st')
+sheet4_cnt = 1
+sheet5 = book.add_sheet('L=10cm', cell_overwrite_ok=True)
+sheet5.write(0, 0, 'm_f')
+sheet5.write(0, 1, 'm_o')
+sheet5.write(0, 2, 'T_max')
+sheet5.write(0, 3, 'kai_st')
+sheet5_cnt = 1
+
 n = len(T_ignition)
 for k in range(n):
-    sheet.write(k + 1, 0, m_f[k])
-    sheet.write(k + 1, 1, m_o[k])
-    sheet.write(k + 1, 2, T_ignition[k])
-    sheet.write(k + 1, 3, kai_ignition[k])
+    if L[k] == 0.01:
+        sheet1.write(sheet1_cnt, 0, m_f[k])
+        sheet1.write(sheet1_cnt, 1, m_o[k])
+        sheet1.write(sheet1_cnt, 2, T_ignition[k])
+        sheet1.write(sheet1_cnt, 3, kai_ignition[k])
+        sheet1_cnt += 1
+    elif L[k] == 0.02:
+        sheet2.write(sheet2_cnt, 0, m_f[k])
+        sheet2.write(sheet2_cnt, 1, m_o[k])
+        sheet2.write(sheet2_cnt, 2, T_ignition[k])
+        sheet2.write(sheet2_cnt, 3, kai_ignition[k])
+        sheet2_cnt += 1
+    elif L[k] == 0.05:
+        sheet3.write(sheet3_cnt, 0, m_f[k])
+        sheet3.write(sheet3_cnt, 1, m_o[k])
+        sheet3.write(sheet3_cnt, 2, T_ignition[k])
+        sheet3.write(sheet3_cnt, 3, kai_ignition[k])
+        sheet3_cnt += 1
+    elif L[k] == 0.08:
+        sheet4.write(sheet4_cnt, 0, m_f[k])
+        sheet4.write(sheet4_cnt, 1, m_o[k])
+        sheet4.write(sheet4_cnt, 2, T_ignition[k])
+        sheet4.write(sheet4_cnt, 3, kai_ignition[k])
+        sheet4_cnt += 1
+    elif L[k] == 0.1:
+        sheet5.write(sheet5_cnt, 0, m_f[k])
+        sheet5.write(sheet5_cnt, 1, m_o[k])
+        sheet5.write(sheet5_cnt, 2, T_ignition[k])
+        sheet5.write(sheet5_cnt, 3, kai_ignition[k])
+        sheet5_cnt += 1
+    else:
+        print('Invalid domain length')
+
 xls_path = os.path.join(output_dir, 'ignition_solution.xls')
 book.save(xls_path)
 
