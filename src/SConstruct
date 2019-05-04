@@ -1,7 +1,8 @@
 env = Environment()
 
 env.Append(CCFLAGS='-g',
-           CPPPATH=[],
+	   CXXFLAGS="-std=c++11",
+           CPPPATH=['/usr/local/include'],
            LIBS=['cantera', 'sundials_cvodes', 'sundials_ida', 'sundials_nvecserial', 'lapack', 'blas'],
            LIBPATH=['/usr/local/lib'],
            LINKFLAGS=['-g', '-pthread'])
