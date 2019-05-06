@@ -1,11 +1,9 @@
 % Solve unsteady opposed diffusion flame using the damped Newton method.
 clear all; close all; clc;
 
-global N K Le P rtol atol;
-global z zL zR mdot_L mdot_R T_L T_R Y_L Y_R;
-global gas MW NAME;
+global N K Le P rtol atol gas MW NAME;
 global iCH4 iH2 iO2 iN2 iAR iH2O iCO iCO2 iNO iNO2;
-global C U phi F;
+global z zL zR mdot_L mdot_R T_L T_R Y_L Y_R C U phi F;
 
 %% Mechanism
 gas = GRI30('Mix'); % Using the GRI 3.0 mechanism
@@ -48,44 +46,35 @@ Y_R(iAR) = 0.01*MW(iAR) / (0.78*MW(iN2) + 0.21*MW(iO2) + 0.01*MW(iAR));
 Y_R(iO2) = 0.21*MW(iO2) / (0.78*MW(iN2) + 0.21*MW(iO2) + 0.01*MW(iAR));
 Y_R(iN2) = 1.0 - (Y_R(iO2) + Y_R(iAR));
 
-%% Load existing data
-case_str = sprintf("mf=%g_mo=%g_L=%g", mdot_f, mdot_o, L);
-raw_data_path = "../data/" + case_str + "_raw.txt";
-trans_data_path = "../data/" + case_str + "_transformed.txt";
-raw_data = readtable(raw_data_path);
-trans_data = readtable(trans_data_path);
-if height(raw_data) ~= height(trans_data)
-    error("Inconsistent input data!");
-end
-
-N = height(raw_data); % Total num of points
-zL = raw_data{1, 1}; % Position of left endpoint, m
-zR = raw_data{N, 1}; % Position of right endpoint, m
+%% Initialize
+[N, raw_data, trans_data] = load_existing_case(mdot_f, mdot_o, L);
+zL = raw_data(1, 1); % Position of left endpoint, m
+zR = raw_data(N, 1); % Position of right endpoint, m
 if abs(zR - zL - L) > 1e-6
     error("Inconsistent domain size");
 end
-z = raw_data{:, 1}; % Coordinates for each point, m
+z = raw_data(:, 1); % Coordinates for each point, m
 
-rho0 = trans_data{:, 1};
-u0 = raw_data{:, 2};
+rho0 = trans_data(:, 1);
+u0 = raw_data(:, 2);
 if abs(rho0(1) * u0(1) - mdot_L) > 1e-6 
     error("Inconsistent mass flux at left");
 end
 if abs(rho0(N) * u0(N) - mdot_R) > 1e-6
     error("Inconsistent mass flux at right");
 end
-V0 = raw_data{:, 3};
-T0 = raw_data{:, 4};
+V0 = raw_data(:, 3);
+T0 = raw_data(:, 4);
 if abs(T0(1) - T_L) > 1e-6
     error("Inconsistent temperature at left");
 end
 if abs(T0(N) - T_R) > 1e-6
     error("Inconsistent temperature at right");
 end
-Nbla0 = raw_data{:, 5};
+Nbla0 = raw_data(:, 5);
 Y0 = zeros(K, N);
 for k = 1:K
-    Y0(k, :) = raw_data{:, 5+k};
+    Y0(k, :) = raw_data(:, 5+k);
     if abs(Y0(k, 1) - Y_L(k)) > 1e-6
         error("Inconsistent Y_%s at left", NAME{k});
     end
@@ -94,16 +83,15 @@ for k = 1:K
     end
 end
 
-%% Initialize
 CUR = 1;
 NEXT = 2;
 
 C = 4+K;  % Num of unknowns per node
 U = C*N; % Total num of unknowns
-phi = zeros(2, U); % Solution vector
-F = zeros(2, U); % Residual vector
+phi = zeros(U, 2); % Solution vector
+F = zeros(U, 2); % Residual vector
 
-phi(CUR, :) = construct_solution_vector(u0, V0, T0, Nbla0, Y0);
+phi(:, CUR) = construct_solution_vector(u0, V0, T0, Nbla0, Y0);
 
 %% Solve 
 J = zeros(U, U); % Jacobian matrix
@@ -112,23 +100,25 @@ global_iter_cnt = 0;
 while(~global_converged)
     global_iter_cnt = global_iter_cnt + 1;
     
-    F(CUR, :) = calculate_residual_vector(phi(CUR, :));
-    %check_residual_vector(F(CUR, :), 100.0);
-
+    F(:, CUR) = calculate_residual_vector(phi(:, CUR));
+    
     % Calculate the Jacobian by finite difference perturbations
+    tic
     for j = 1:U
-        % Perturb
-        delta = perturbation_delta(phi(CUR, j));
-        phi(NEXT, :) = phi(CUR, :);
-        phi(NEXT, j) = phi(NEXT, j) + delta;
-        F(NEXT, :) = calculate_residual_vector(phi(NEXT, :));
-        %check_residual_vector(F(NEXT, :), 100.0);
-        % Update column
-        J(:, j) = (F(NEXT, :) - F(CUR, :))/delta;
+        delta = perturbation_delta(phi(j, CUR));
+        phi(j, CUR) = phi(j, CUR) + delta;
+        F(:, NEXT) = calculate_residual_vector(phi(:, CUR));
+        phi(j, CUR) = phi(j, CUR) - delta;
+        J(:, j) = (F(:, NEXT) - F(:, CUR))/delta;
     end
-
+    toc
     % Solve the Jacobian
     dphi = solBlkDiagMat(J, F(CUR, :)');
+    
+    % Update
+    for j = 1:U
+        phi(NEXT, j) = phi(CUR, j) + dphi(j);
+    end
     
     CUR = 3-CUR;
     NEXT = 3-NEXT;
@@ -351,3 +341,23 @@ end
 function x = solBlkDiagMat(B, b)
     x = B\b;
 end
+
+function [lines, raw_data, trans_data] = load_existing_case(mf, mo, domain_len)
+    case_str = sprintf("mf=%g_mo=%g_L=%g", mf, mo, domain_len);
+    raw_data_path = "../data/" + case_str + "_raw.txt";
+    trans_data_path = "../data/" + case_str + "_transformed.txt";
+    
+    raw_tbl = importdata(raw_data_path);
+    raw_data = raw_tbl.data;
+    
+    trans_tbl = importdata(trans_data_path);
+    trans_data = trans_tbl.data;
+    
+    a = size(raw_data);
+    b = size(trans_data);
+    if  a(1) ~= b(1)
+        error("Inconsistent input data!");
+    end
+    lines = a(1);
+end
+
