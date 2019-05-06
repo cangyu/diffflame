@@ -15,6 +15,10 @@
 using namespace Cantera;
 using namespace std;
 
+const string DATA_DIR = "../../original_database/";
+const bool USE_EXISTING_DATA = false;
+const size_t INITIAL_PNT_NUM = 51;
+
 template<typename T>
 T relaxation(const T& a, const T& b, double alpha)
 {
@@ -45,7 +49,7 @@ void diffflame(double mdot_f, double mdot_o, double domain_length)
     const double T_f = 300.0;
     
     // Initial grid
-    const size_t N = 251;
+    const size_t N = INITIAL_PNT_NUM;
     const double dz = domain_length/(N-1);
     vector<double> z(N, 0.0);
     z[0] = -domain_length / 2;
@@ -196,7 +200,7 @@ void diffflame(double mdot_f, double mdot_o, double domain_length, const vector<
     const double T_f = 300.0;
     
     // Initial grid
-    const size_t N = 251;
+    const size_t N = INITIAL_PNT_NUM;
     const double dz = domain_length/(N-1);
     vector<double> z(N, 0.0);
     z[0] = -domain_length / 2;
@@ -367,7 +371,7 @@ int main(int argc, char *argv[])
 
     // Load existing data
     stringstream ss;
-    ss << "../../original_database/" << int(L*100) << "cm/case/";
+    ss << DATA_DIR << int(L*100) << "cm/case/";
     ss << "mf=" << mf << "_mo=" << mo << "_L=" << L << "_raw.txt";
     ifstream fin(ss.str());
     bool init_data_available = fin.good();
@@ -407,8 +411,7 @@ int main(int argc, char *argv[])
     // Solve
     try 
     {
-        init_data_available = false;
-        if(init_data_available)
+        if(init_data_available && USE_EXISTING_DATA)
         {
             cout << "Existing data detected!" << endl;
             diffflame(mf, mo, L, data);
