@@ -33,6 +33,8 @@ global MW;
 global NAME;
 global mdot_L;
 global mdot_R;
+global T_L;
+global T_R;
 
 mdot_f = 0.1; % Mass flux of fuel at left side, Kg/(m^2 * s).
 mdot_o = 0.3; % Mass flux of oxidizer at right side, Kg/(m^2 * s).
@@ -117,6 +119,9 @@ Nbla(CUR, :) = raw_data{:, 5};
 for k = 1:K
     Y(CUR, k, :) = raw_data{:, 5+k};
 end
+
+T_L = T(CUR, 1);
+T_R = T(CUR, N);
 
 %%  Solve 
 global_converged = false;
@@ -296,6 +301,9 @@ function calculate_residual_vector(src_level, dst_level)
     global gas;
     global MW;
     global mdot_L;
+    global mdot_R;
+    global T_L;
+    global T_R;
     
     % Update properties
     for i = 1:N
@@ -326,18 +334,38 @@ function calculate_residual_vector(src_level, dst_level)
     % Calculate residuals
     cnt = 1;
     for i = 1:N
-        F(dst_level, cnt) = (rho(src_level, i+1) * u(src_level, i+1) - rho(src_level, i) * u(src_level, i))/(z(i+1) - z(i)) + rho(src_level, i) * V(src_level, i) + rho(src_level, i+1) * V(src_level, i+1);
+        % Continuity equation
+        if i == N
+            F(dst_level, cnt) = rho(src_level, i) * u(src_level, i) - mdot_R; % B.C. of mdot at right.
+        else
+            F(dst_level, cnt) = (rho(src_level, i+1) * u(src_level, i+1) - rho(src_level, i) * u(src_level, i))/(z(i+1) - z(i)) + rho(src_level, i) * V(src_level, i) + rho(src_level, i+1) * V(src_level, i+1);
+        end
         cnt = cnt +1;
-        F(dst_level, cnt) = rho(src_level, i)*u(src_level, i)*dVdz(i)+rho(src_level,i)*V(src_level,i)^2 + Nbla(src_level, i) - mu(i)*ddVddz(i);
+        % Radial Momentum
+        if i == 1 || i == N
+            F(dst_level, cnt) = V(src_level, i); % B.C. of V at both left and right.
+        else
+            F(dst_level, cnt) = rho(src_level, i)*u(src_level, i)*dVdz(i)+rho(src_level,i)*V(src_level,i)^2 + Nbla(src_level, i) - mu(i)*ddVddz(i);
+        end
         cnt = cnt + 1;
-        F(dst_level, cnt) = rho(src_level, i) * Cp(i) * u(src_level, i) * dTdz(i) -lambda(i) * ddTddz(i) + RS(i);
+        % Energy
+        if i == 1
+            F(dst_level, cnt) = T(src_level, i) - T_L; % B.C. of T at left.
+        elseif i == N
+            F(dst_level, cnt) = T(src_level, i) - T_R; % B.C. of T at right.
+        else
+            
+            F(dst_level, cnt) = rho(src_level, i) * Cp(i) * u(src_level, i) * dTdz(i) -lambda(i) * ddTddz(i) + RS(i);
+        end
         cnt = cnt + 1;
-        if i == 2
-            F(dst_level, cnt) = rho(src_level, i) * u(src_level, i) - mdot_L;
+        % Eigenvalue
+        if i == 1
+            F(dst_level, cnt) = rho(src_level, i) * u(src_level, i) - mdot_L; % B.C. of mdot at left.
         else
             F(dst_level, cnt) = Nbla(src_level, i) - Nbla(src_level, i-1);
         end
         cnt = cnt + 1;
+        % Species
         for k = 1:K
             F(dst_level, cnt) = rho(src_level, i)*u(src_level, i)*dYdz(k, i)-D(k,i)*ddYddz(k,i)-RR(k, i);
             cnt = cnt + 1;
