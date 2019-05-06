@@ -100,12 +100,12 @@ NEXT = 2;
 
 C = 4+K;  % Num of unknowns per node
 U = C*N; % Total num of unknowns
-phi=zeros(2, U); % Solution vector
-F= zeros(2, U); % Residual vector
+phi = zeros(2, U); % Solution vector
+F = zeros(2, U); % Residual vector
 
 phi(CUR, :) = construct_solution_vector(u0, V0, T0, Nbla0, Y0);
 
-%%  Solve 
+%% Solve 
 J = zeros(U, U); % Jacobian matrix
 global_converged = false;
 global_iter_cnt = 0;
