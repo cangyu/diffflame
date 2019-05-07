@@ -1,9 +1,8 @@
-% Solve unsteady opposed diffusion flame using the damped Newton method.
+% Solve opposed diffusion flame using the damped Newton method.
 clear all; close all; clc;
 
-global N K Le P rtol atol gas MW NAME;
-global iCH4 iH2 iO2 iN2 iAR iH2O iCO iCO2 iNO iNO2;
-global z zL zR mdot_L mdot_R T_L T_R Y_L Y_R C U phi F;
+global N K Le P rtol atol z zL zR mdot_L mdot_R T_L T_R Y_L Y_R C U phi F;
+global gas MW NAME iCH4 iH2 iO2 iN2 iAR iH2O iCO iCO2 iNO iNO2;
 
 %% Mechanism
 gas = GRI30('Mix'); % Using the GRI 3.0 mechanism
@@ -100,13 +99,13 @@ global_iter_cnt = 0;
 while(~global_converged)
     global_iter_cnt = global_iter_cnt + 1;
     
-    F(:, CUR) = calculate_residual_vector(phi(:, CUR));
+    F(:, CUR) = calculate_ss_residual_vector(phi(:, CUR));
     % Calculate the Jacobian by finite difference perturbations
     tic
     for j = 1:U
         delta = perturbation_delta(phi(j, CUR));
         phi(j, CUR) = phi(j, CUR) + delta;
-        F(:, NEXT) = calculate_residual_vector(phi(:, CUR));
+        F(:, NEXT) = calculate_ss_residual_vector(phi(:, CUR));
         phi(j, CUR) = phi(j, CUR) - delta;
         J(:, j) = (F(:, NEXT) - F(:, CUR))/delta;
     end
@@ -167,7 +166,7 @@ function [u, V, T, Nbla, Y] = mapback_solution_vector(phi)
     end
 end
 
-function ret = calculate_residual_vector(phi)
+function ret = calculate_ss_residual_vector(phi)
     global N K P U gas MW z mdot_L mdot_R T_L T_R Y_L Y_R;
     
     [u, V, T, Nbla, Y] = mapback_solution_vector(phi);
@@ -314,7 +313,12 @@ end
 function ret = perturbation_delta(x)
     global rtol atol;
     
-    ret = rtol * x + atol;
+    % Preserve sign(x)
+    if x >= 0
+        ret = rtol * x + atol;
+    else
+        ret = rtol * x - atol;
+    end
 end
 
 function [lines, raw_data, trans_data] = load_existing_case(mf, mo, domain_len)
@@ -335,4 +339,3 @@ function [lines, raw_data, trans_data] = load_existing_case(mf, mo, domain_len)
     end
     lines = a(1);
 end
-
