@@ -100,6 +100,7 @@ while(~global_converged)
     global_iter_cnt = global_iter_cnt + 1;
     
     F(:, CUR) = calculate_ss_residual_vector(phi(:, CUR));
+    diagnose_vector(F(:, CUR), 100.0);
     % Calculate the Jacobian by finite difference perturbations
     tic
     for j = 1:U
@@ -111,7 +112,7 @@ while(~global_converged)
     end
     toc
     % Solve the Jacobian
-    dphi = linsolve(J, F(:, CUR));
+    dphi = linsolve(J, -F(:, CUR));
     
     % Update
     phi(:, NEXT) = phi(:, CUR) + dphi(:);
@@ -230,6 +231,7 @@ function ret = calculate_ss_residual_vector(phi)
             ret(cnt) = V(i); % B.C. of V at both left and right.
         else
             ret(cnt) = rho(i)*u(i)*dVdz(i)+rho(i)*V(i)^2 + Nbla(i) - mu(i)*ddVddz(i);
+            ret(cnt) = ret(cnt) / rho(i);
         end
         cnt = cnt + 1;
         % Energy
@@ -239,6 +241,7 @@ function ret = calculate_ss_residual_vector(phi)
             ret(cnt) = T(i) - T_R; % B.C. of T at right.
         else
             ret(cnt) = rho(i) * Cp(i) * u(i) * dTdz(i) -lambda(i) * ddTddz(i) + RS(i) + dot(j(:, i), Cp_R(:, i)) * dTdz(i);
+            ret(cnt) = ret(cnt) / (rho(i) * Cp(i));
         end
         cnt = cnt + 1;
         % Eigenvalue
@@ -256,6 +259,7 @@ function ret = calculate_ss_residual_vector(phi)
                 ret(cnt) = rho(i) * u(i) * Y(k, i) + j(k, i) - mdot_R * Y_R(k); % B.C. of Y_k at right.
             else
                 ret(cnt) = rho(i)*u(i)*dYdz(k, i)-rho(i)*D(k,i)*ddYddz(k,i)-RR(k, i);
+                ret(cnt) = ret(cnt) / rho(i);
             end
             cnt = cnt + 1;
         end
@@ -266,12 +270,116 @@ function ret = calculate_ss_residual_vector(phi)
     end
 end
 
-function check_residual_vector(F, threshold)
+function ret = calculate_ts_residual_vector(phi_prev, phi_cur, dt)
+    global N K P U gas MW z mdot_L mdot_R T_L T_R Y_L Y_R;
+    
+    rdt = 1.0 / dt;
+    [u, V, T, Nbla, Y] = mapback_solution_vector(phi_cur);
+    rho = zeros(N, 1); % Density, Kg / m^3
+    mu = zeros(N, 1); %Viscosity, Pa * s = Kg / (m * s)
+    Cp = zeros(N, 1); %Specific heat, J / (Kg * K)
+    Cp_R = zeros(K, N); % Non-dimensionalized specific heats of species at constant pressure by gas constant, whose unit is J/(Kmol*K)
+    lambda = zeros(N, 1); %Thermal conductivity, W / (m * K)
+    D = zeros(K, N); %Binary diffusion coefficients, m^2 / s
+    RS = zeros(N, 1); %Energy source due to chemical reaction, J / (m^3 * s)
+    RR = zeros(K, N); %Chemical reaction rate, Kg / (m^3 * s)
+    j = zeros(K, N); % Diffusion mass flux, Kg / (m^2 * s)
+    
+    % Properties
+    for i = 1:N
+        loc_T = T(i); % K
+        set(gas, 'T', loc_T, 'P', P, 'Y', squeeze(Y(:, i)));
+        rho(i) = density(gas); %Kg / m^3
+        mu(i) = viscosity(gas); % Pa * s = Kg / (m * s)
+        lambda(i) = thermalConductivity(gas); % W / (m * K)
+        Cp(i) = cp_mass(gas); % J / (Kg * K)
+        Cp_R(:, i) = gasconstant * cp_R(gas) ./ MW; % J / (Kg * K)
+        D(:, i) = lambda(i) / (rho(i) * Cp(i)); % Compute from Unity Lewis, m^2 / s
+        w = netProdRates(gas); % Kmol / (m^3 * s)
+        h = enthalpies_RT(gas) * loc_T * gasconstant; % J/Kmol
+        RS(i) = dot(w, h); % J / (m^3 * s)
+        RR(:, i) = w .* MW; % Kg / (m^3 * s)
+    end
+    
+    % Derivatives
+    dVdz = df_upwind(V, z, u);
+    ddVddz = ddf(V, z);
+    dTdz = df_upwind(T, z, u);
+    ddTddz = ddf(T, z);
+    dYdz = zeros(K, N);
+    ddYddz = zeros(K, N);
+    for k = 1:K
+        dYdz(k, :) = df_upwind(Y(k, :), z, u);
+        ddYddz(k, :) = ddf(Y(k, :), z);
+    end
+     
+     % Species diffusion mass flux
+     for i = 1:N
+         j(:, i) = -rho(i) * D(:, i) .* dYdz(:, i); % Be careful with sign convention
+         j(:, i) = j(:, i) - Y(:, i) * sum(j(:, i)); % Ensure the sum of mass flux is zero.
+     end
+    
+    % Residuals
+    ret = zeros(U, 1);
+    cnt = 1;
+    for i = 1:N
+        % Continuity equation
+        if i == N
+            ret(cnt) = rho(i) * u(i) - mdot_R; % B.C. of mdot at right.
+        else
+            ret(cnt) = (rho(i+1) * u(i+1) - rho(i) * u(i))/(z(i+1) - z(i)) + rho(i) * V(i) + rho(i+1) * V(i+1);
+        end
+        cnt = cnt +1;
+        % Radial Momentum
+        if i == 1 || i == N
+            ret(cnt) = V(i); % B.C. of V at both left and right.
+        else
+            ret(cnt) = rho(i)*u(i)*dVdz(i)+rho(i)*V(i)^2 + Nbla(i) - mu(i)*ddVddz(i);
+            ret(cnt) = ret(cnt) / rho(i);
+        end
+        cnt = cnt + 1;
+        % Energy
+        if i == 1
+            ret(cnt) = T(i) - T_L; % B.C. of T at left.
+        elseif i == N
+            ret(cnt) = T(i) - T_R; % B.C. of T at right.
+        else
+            ret(cnt) = rho(i) * Cp(i) * u(i) * dTdz(i) -lambda(i) * ddTddz(i) + RS(i) + dot(j(:, i), Cp_R(:, i)) * dTdz(i);
+            ret(cnt) = ret(cnt) / (rho(i) * Cp(i));
+        end
+        cnt = cnt + 1;
+        % Eigenvalue
+        if i == 1
+            ret(cnt) = rho(i) * u(i) - mdot_L; % B.C. of mdot at left.
+        else
+            ret(cnt) = Nbla(i) - Nbla(i-1);
+        end
+        cnt = cnt + 1;
+        % Species
+        for k = 1:K
+            if i == 1
+                ret(cnt) = rho(i) * u(i) * Y(k, i) + j(k, i) - mdot_L * Y_L(k); % B.C. of Y_k at left.
+            elseif i==N
+                ret(cnt) = rho(i) * u(i) * Y(k, i) + j(k, i) - mdot_R * Y_R(k); % B.C. of Y_k at right.
+            else
+                ret(cnt) = rho(i)*u(i)*dYdz(k, i)-rho(i)*D(k,i)*ddYddz(k,i)-RR(k, i);
+                ret(cnt) = ret(cnt) / rho(i);
+            end
+            cnt = cnt + 1;
+        end
+    end
+    
+    if cnt ~= U+1
+        error("Internal error!");
+    end
+end
+
+function diagnose_vector(F, threshold)
     global U C;
     
     for cnt = 1:U
         if F(cnt) > threshold
-            fprintf("Pnt%d_Var%d: %g\n", floor((cnt-1)/C), mod(cnt-1, C) + 1, F(cnt));
+            fprintf("pnt%d-var%d: %g\n", floor((cnt-1)/C), mod(cnt-1, C) + 1, F(cnt));
         end
     end
 end
