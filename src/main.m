@@ -101,7 +101,6 @@ while(~global_converged)
     global_iter_cnt = global_iter_cnt + 1;
     
     F(:, CUR) = calculate_residual_vector(phi(:, CUR));
-    
     % Calculate the Jacobian by finite difference perturbations
     tic
     for j = 1:U
@@ -113,12 +112,10 @@ while(~global_converged)
     end
     toc
     % Solve the Jacobian
-    dphi = solBlkDiagMat(J, F(CUR, :)');
+    dphi = linsolve(J, F(:, CUR));
     
     % Update
-    for j = 1:U
-        phi(NEXT, j) = phi(CUR, j) + dphi(j);
-    end
+    phi(:, NEXT) = phi(:, CUR) + dphi(:);
     
     CUR = 3-CUR;
     NEXT = 3-NEXT;
@@ -171,73 +168,55 @@ function [u, V, T, Nbla, Y] = mapback_solution_vector(phi)
 end
 
 function ret = calculate_residual_vector(phi)
-    global N K P U gas MW;
-    global z mdot_L mdot_R T_L T_R Y_L Y_R;
+    global N K P U gas MW z mdot_L mdot_R T_L T_R Y_L Y_R;
     
-    ret = zeros(U, 1);
-
-    % Physical variables
     [u, V, T, Nbla, Y] = mapback_solution_vector(phi);
-    rho = zeros(N, 1); % Kg / m^3
-
-    % Physical properties
+    rho = zeros(N, 1); % Density, Kg / m^3
     mu = zeros(N, 1); %Viscosity, Pa * s = Kg / (m * s)
     Cp = zeros(N, 1); %Specific heat, J / (Kg * K)
-    Cp_R = zeros(K, N); % Non-dimensional specific heats of species at constant pressure
+    Cp_R = zeros(K, N); % Non-dimensionalized specific heats of species at constant pressure by gas constant, whose unit is J/(Kmol*K)
     lambda = zeros(N, 1); %Thermal conductivity, W / (m * K)
     D = zeros(K, N); %Binary diffusion coefficients, m^2 / s
-
-    % Chemical source terms
     RS = zeros(N, 1); %Energy source due to chemical reaction, J / (m^3 * s)
     RR = zeros(K, N); %Chemical reaction rate, Kg / (m^3 * s)
-
-    % Derivatives
-    dVdz = zeros(N, 1);
-    dTdz = zeros(N, 1);
-    dYdz = zeros(K, N);
-    ddVddz = zeros(N, 1);
-    ddTddz = zeros(N, 1);
-    ddYddz = zeros(K, N);
+    j = zeros(K, N); % Diffusion mass flux, Kg / (m^2 * s)
     
-    % Update properties
+    % Properties
     for i = 1:N
         loc_T = T(i); % K
         set(gas, 'T', loc_T, 'P', P, 'Y', squeeze(Y(:, i)));
-        rho(i) = density(gas); %Kg/m^3
+        rho(i) = density(gas); %Kg / m^3
         mu(i) = viscosity(gas); % Pa * s = Kg / (m * s)
         lambda(i) = thermalConductivity(gas); % W / (m * K)
         Cp(i) = cp_mass(gas); % J / (Kg * K)
-        Cp_R(:, i) = cp_R(gas); % Non-dimensionalized by gas constant, J/(Kmol*K).
-        D(:, i) = lambda(i) / (rho(i) * Cp(i)); % Compute from Unity Lewis
+        Cp_R(:, i) = gasconstant * cp_R(gas) ./ MW; % J / (Kg * K)
+        D(:, i) = lambda(i) / (rho(i) * Cp(i)); % Compute from Unity Lewis, m^2 / s
         w = netProdRates(gas); % Kmol / (m^3 * s)
         h = enthalpies_RT(gas) * loc_T * gasconstant; % J/Kmol
         RS(i) = dot(w, h); % J / (m^3 * s)
-        RR(:, i) = w.* MW; % Kg / (m^3 * s)
+        RR(:, i) = w .* MW; % Kg / (m^3 * s)
     end
     
-    % Calcaulate derivatives
-    dVdz(:) = df_upwind(V(:), z, u(:));
-    dTdz(:) = df_upwind(T(:), z, u(:));
+    % Derivatives
+    dVdz = df_upwind(V, z, u);
+    ddVddz = ddf(V, z);
+    dTdz = df_upwind(T, z, u);
+    ddTddz = ddf(T, z);
+    dYdz = zeros(K, N);
+    ddYddz = zeros(K, N);
     for k = 1:K
-        dYdz(k, :) = df_upwind(Y(k, :), z, u(:));
-    end
-    ddVddz(:) = ddf(V(:), z);
-    ddTddz(:) = ddf(T(:), z);
-     for k = 1:K
+        dYdz(k, :) = df_upwind(Y(k, :), z, u);
         ddYddz(k, :) = ddf(Y(k, :), z);
-     end
+    end
      
-     % Heat flux due to species diffusion
-     SpecDiff = zeros(N, 1);
+     % Species diffusion mass flux
      for i = 1:N
-         tmp = 0;
-         for k = 1 : K
-              tmp = tmp + D(k, i)*dYdz(k, i)*Cp_R(k, i)/MW(k); % Here Cp_R is non-dimensionalized by gas constant.
-         end
-         SpecDiff(i) = tmp*gasconstant; % Universal gas constant, J/(Kmol*K).
+         j(:, i) = -rho(i) * D(:, i) .* dYdz(:, i); % Be careful with sign convention
+         j(:, i) = j(:, i) - Y(:, i) * sum(j(:, i)); % Ensure the sum of mass flux is zero.
      end
     
-    % Calculate residuals
+    % Residuals
+    ret = zeros(U, 1);
     cnt = 1;
     for i = 1:N
         % Continuity equation
@@ -260,7 +239,7 @@ function ret = calculate_residual_vector(phi)
         elseif i == N
             ret(cnt) = T(i) - T_R; % B.C. of T at right.
         else
-            ret(cnt) = rho(i) * Cp(i) * u(i) * dTdz(i) -lambda(i) * ddTddz(i) + RS(i) - SpecDiff(i) * dTdz(i);
+            ret(cnt) = rho(i) * Cp(i) * u(i) * dTdz(i) -lambda(i) * ddTddz(i) + RS(i) + dot(j(:, i), Cp_R(:, i)) * dTdz(i);
         end
         cnt = cnt + 1;
         % Eigenvalue
@@ -273,11 +252,11 @@ function ret = calculate_residual_vector(phi)
         % Species
         for k = 1:K
             if i == 1
-                ret(cnt) = Y(k, i) - Y_L(k); % B.C. of Y_k at left.
+                ret(cnt) = rho(i) * u(i) * Y(k, i) + j(k, i) - mdot_L * Y_L(k); % B.C. of Y_k at left.
             elseif i==N
-                ret(cnt) = Y(k, i) - Y_R(k); % B.C. of Y_k at right.
+                ret(cnt) = rho(i) * u(i) * Y(k, i) + j(k, i) - mdot_R * Y_R(k); % B.C. of Y_k at right.
             else
-                ret(cnt) = rho(i)*u(i)*dYdz(k, i)-D(k,i)*ddYddz(k,i)-RR(k, i);
+                ret(cnt) = rho(i)*u(i)*dYdz(k, i)-rho(i)*D(k,i)*ddYddz(k,i)-RR(k, i);
             end
             cnt = cnt + 1;
         end
@@ -336,10 +315,6 @@ function ret = perturbation_delta(x)
     global rtol atol;
     
     ret = rtol * x + atol;
-end
-
-function x = solBlkDiagMat(B, b)
-    x = B\b;
 end
 
 function [lines, raw_data, trans_data] = load_existing_case(mf, mo, domain_len)
