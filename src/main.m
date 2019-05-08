@@ -110,7 +110,6 @@ dt = 1e-6;
 while(~global_converged)
     global_iter_cnt = global_iter_cnt + 1;
     
-    show_profile(phi);
     F = calculate_ss_residual_vector(phi);
     ss_norm2(phi, F)
     
@@ -205,7 +204,7 @@ function ret = calculate_ss_residual_vector(phi)
     rho = zeros(N, 1); % Density, Kg / m^3
     mu = zeros(N, 1); %Viscosity, Pa * s = Kg / (m * s)
     Cp = zeros(N, 1); %Specific heat, J / (Kg * K)
-    Cp_R = zeros(K, N); % Non-dimensionalized specific heats of species at constant pressure by gas constant, whose unit is J/(Kmol*K)
+    Cp_R = zeros(K, N); % Specific heat of each species, J / (Kg * K)
     lambda = zeros(N, 1); %Thermal conductivity, W / (m * K)
     D = zeros(K, N); %Binary diffusion coefficients, m^2 / s
     RS = zeros(N, 1); %Energy source due to chemical reaction, J / (m^3 * s)
@@ -271,7 +270,7 @@ function ret = calculate_ss_residual_vector(phi)
         elseif i == N
             ret(cnt) = T(i) - T_R; % B.C. of T at right.
         else
-            ret(cnt) = rho(i) * Cp(i) * u(i) * dTdz(i) -lambda(i) * ddTddz(i) + RS(i) + dot(j(:, i), Cp_R(:, i)) * dTdz(i);
+            ret(cnt) = rho(i)*Cp(i)*u(i)*dTdz(i)-lambda(i)*ddTddz(i)+RS(i)+dot(j(:, i),Cp_R(:, i))*dTdz(i);
             ret(cnt) = ret(cnt) / (rho(i) * Cp(i));
         end
         cnt = cnt + 1;
@@ -486,6 +485,17 @@ function [lines, raw_data, trans_data] = load_existing_case(mf, mo, domain_len)
     lines = a(1);
 end
 
+function ret = calc_density(p, t, y)
+    global MW K;
+    
+    tmp = 0;
+    for k = 1:K
+        tmp = tmp + y(k) / MW(k);
+    end
+    
+    ret = p / (gasconstant * t * tmp);
+end
+
 function ret = norm1(res_vec)
     ret = log10(norm(res_vec, inf));
 end
@@ -573,7 +583,7 @@ function ret = calculate_mixture_fraction(sol_vec)
     end
 end
 
-function show_profile(sol_vec)
+function show_solution_profile(sol_vec)
     global P N K z iCH4 iH2 iO2 iN2 iAR iH2O iCO iCO2 iNO iNO2 gas MW;
     
     Z = calculate_mixture_fraction(sol_vec);
@@ -593,6 +603,9 @@ function show_profile(sol_vec)
         RR(:, i) = w .* MW; % Kg / (m^3 * s)
     end
     
+    h = figure(1);
+    set(h, 'position', get(0,'ScreenSize'));
+    
     ax1 = subplot(4, 7, [1 2 3 8 9 10 15 16 17]);
     plot(ax1, z, Y(iCH4, :), z, Y(iH2, :), z, Y(iN2, :), z, Y(iO2, :), z, Y(iAR, :)*10, z, Y(iH2O, :), z, Y(iCO, :)*10, z, Y(iCO2, :)*10, z, Y(iNO, :)*1e3, z, Y(iNO2, :)*1e4);
     legend(ax1, 'Y_{CH_4}','Y_{H_2}','Y_{N_2}','Y_{O_2}','10\cdotY_{AR}','Y_{H_2O}','10\cdotY_{CO}','10\cdotY_{CO_2}','1e3\cdotY_{NO}','1e4\cdotY_{NO_2}');
@@ -600,6 +613,7 @@ function show_profile(sol_vec)
     title(ax1, "Y");
     
     ax2 = subplot(4, 7, [22 23 24]);
+    xlabel('z / m');
     yyaxis left
     plot(ax2, z, Z);
     ylabel(ax2, "Z");
@@ -630,6 +644,7 @@ function show_profile(sol_vec)
     ylabel(ax6, "J\cdotm^{-3}\cdots^{-1}");
     title(ax6, '$$-\sum{h_k\dot{\omega}_k}$$','Interpreter','latex');
     set(ax6,'YAxisLocation','right');
+    xlabel('z / m');
     
     ax7 = subplot(4, 7, 7);
     plot(ax7, z, rho);
@@ -654,19 +669,98 @@ function show_profile(sol_vec)
     ylabel(ax10, "Kg\cdotm^{-3}\cdots^{-2}");
     title(ax10, '$$\Lambda$$','Interpreter','latex');
     set(ax10,'YAxisLocation','right');
+    xlabel('z / m');
 end
 
-function show_solution_diff(sol1, sol2)
-    % TODO
-end
-
-function ret = calc_density(p, t, y)
-    global MW K;
+function show_solution_diff(sol0, sol1)
+    global z N P iCH4 iH2 iO2 iH2O iCO iCO2 iNO iNO2;
     
-    tmp = 0;
-    for k = 1:K
-        tmp = tmp + y(k) / MW(k);
+    [u0, V0, T0, Nbla0, Y0] = mapback_solution_vector(sol0);
+    [u1, V1, T1, Nbla1, Y1] = mapback_solution_vector(sol1);
+    delta_u = u1 - u0;
+    delta_V = V1 - V0;
+    delta_T = T1 - T0;
+    delta_Nbla = Nbla1 - Nbla0; 
+    delta_Y = Y1 - Y0;
+    
+    rho0 = zeros(N, 1);
+    rho1 = zeros(N, 1);
+    for i = 1:N
+        rho0(i) = calc_density(P, T0(i), Y0(:, i));
+        rho1(i) = calc_density(P, T1(i), Y1(:, i));
     end
+    delta_rho = rho1 - rho0;
     
-    ret = p / (gasconstant * t * tmp);
+    h = figure(2);
+    set(h, 'position', get(0,'ScreenSize'));
+    
+    subplot(3, 5, 1);
+    plot(z, delta_rho);
+    title('$$\Delta\rho$$','Interpreter','latex');
+    xlabel('z / m');
+    ylabel('Kg\cdotm^{-3}');
+
+    subplot(3, 5, 2);
+    plot(z, delta_u);
+    title('$$\Delta u$$','Interpreter','latex');
+    xlabel('z / m');
+    ylabel('m\cdots^{-1}');
+    
+    subplot(3, 5, 3);
+    plot(z, delta_V);
+    title('$$\Delta V$$','Interpreter','latex');
+    xlabel('z / m');
+    ylabel('s^{-1}');
+    
+    subplot(3, 5, 4);
+    plot(z, delta_T);
+    title('$$\Delta T$$','Interpreter','latex');
+    xlabel('z / m');
+    ylabel('K');
+    
+    subplot(3, 5, 5);
+    plot(z, delta_Nbla);
+    title('$$\Delta\Lambda$$','Interpreter','latex');
+    xlabel('z / m');
+    ylabel('Kg\cdotm^{-3}\cdots^{-2}');
+    
+    subplot(3, 5, 6);
+    plot(z, delta_Y(iCH4, :));
+    title('$$\Delta Y_{CH4}$$','Interpreter','latex');
+    xlabel('z / m');
+    
+    subplot(3, 5, 7);
+    plot(z, delta_Y(iH2, :));
+    title('$$\Delta Y_{H2}$$','Interpreter','latex');
+    xlabel('z / m');
+
+    subplot(3, 5, 8);
+    plot(z, delta_Y(iO2, :));
+    title('$$\Delta Y_{O2}$$','Interpreter','latex');
+    xlabel('z / m');
+
+    subplot(3, 5, 9);
+    plot(z, delta_Y(iCO2, :));
+    title('$$\Delta Y_{CO2}$$','Interpreter','latex');
+    xlabel('z / m');
+
+    subplot(3, 5, 10);
+    plot(z, delta_Y(iH2O, :));
+    title('$$\Delta Y_{H2O}$$','Interpreter','latex');
+    xlabel('z / m');
+
+    subplot(3, 5, 11)
+    plot(z, delta_Y(iNO, :))
+    title('$$\Delta Y_{NO}$$','Interpreter','latex');
+    xlabel('z / m')
+
+    subplot(3, 5, 12)
+    plot(z, delta_Y(iNO2, :))
+    title('$$\Delta Y_{NO2}$$','Interpreter','latex');
+    xlabel('z / m')
+    
+    subplot(3, 5, 13)
+    plot(z, delta_Y(iCO, :))
+    title('$$\Delta Y_{CO}$$','Interpreter','latex');
+    xlabel('z / m');
 end
