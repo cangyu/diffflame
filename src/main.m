@@ -7,12 +7,12 @@ global rtol atol ss_atol ss_rtol ts_atol ts_rtol phi_prev;
 global MW_C MW_H MW_O Yc_fu Yh_fu Yo_fu Yc_ox Yh_ox Yo_ox;
 
 %% Mechanism
-gas = GRI30('Mix'); % Using the GRI 3.0 mechanism
+gas = GRI30('Mix'); % Use the GRI 3.0 mechanism.
 Le = 1.0; % Unity Lewis
 MW = molecularWeights(gas); % Molecular weight, Kg/Kmol
 NAME = speciesNames(gas); % Name of each species
 K = nSpecies(gas); % Total num of species
-C = 4+K;  % Num of unknowns per node
+C = 4+K;  % Num of unknowns per node, (u V T Nbla Y) in sequence.
 
 MW_C = 12.011;
 MW_H = 1.00794;
