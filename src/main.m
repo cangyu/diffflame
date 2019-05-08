@@ -4,6 +4,7 @@ clear all; close all; clc;
 global N K  C U z zL zR mdot_L mdot_R T_L T_R Y_L Y_R;
 global Le P gas MW NAME iCH4 iH2 iO2 iN2 iAR iH2O iCO iCO2 iNO iNO2;
 global rtol atol ss_atol ss_rtol ts_atol ts_rtol phi_prev;
+global MW_C MW_H MW_O Yc_fu Yh_fu Yo_fu Yc_ox Yh_ox Yo_ox;
 
 %% Mechanism
 gas = GRI30('Mix'); % Using the GRI 3.0 mechanism
@@ -12,6 +13,10 @@ MW = molecularWeights(gas); % Molecular weight, Kg/Kmol
 NAME = speciesNames(gas); % Name of each species
 K = nSpecies(gas); % Total num of species
 C = 4+K;  % Num of unknowns per node
+
+MW_C = 12.011;
+MW_H = 1.00794;
+MW_O = 15.9994;
 
 iCH4 = speciesIndex(gas, 'CH4');
 iH2 = speciesIndex(gas, 'H2');
@@ -45,11 +50,17 @@ T_R = 300.0; % Temperature at right, K
 Y_L = zeros(K, 1);
 Y_L(iCH4) = 0.5*MW(iCH4) / (0.5*MW(iCH4) + 0.5*MW(iH2));
 Y_L(iH2) = 1.0 - Y_L(iCH4);
+Yc_fu = MW_C/(MW_C+4*MW_H)*Y_L(iCH4);
+Yh_fu = 1.0-Yc_fu;
+Yo_fu = 0.0;
 % N2:0.78, O2:0.21, AR:0.01at right
 Y_R = zeros(K, 1);
 Y_R(iAR) = 0.01*MW(iAR) / (0.78*MW(iN2) + 0.21*MW(iO2) + 0.01*MW(iAR));
 Y_R(iO2) = 0.21*MW(iO2) / (0.78*MW(iN2) + 0.21*MW(iO2) + 0.01*MW(iAR));
 Y_R(iN2) = 1.0 - (Y_R(iO2) + Y_R(iAR));
+Yc_ox = 0.0;
+Yh_ox = 0.0; 
+Yo_ox = Y_R(iO2);
 
 %% Initialize
 [N, raw_data, trans_data] = load_existing_case(mdot_f, mdot_o, L);
@@ -99,6 +110,7 @@ dt = 1e-6;
 while(~global_converged)
     global_iter_cnt = global_iter_cnt + 1;
     
+    show_profile(phi);
     F = calculate_ss_residual_vector(phi);
     ss_norm2(phi, F)
     
@@ -538,9 +550,33 @@ function ret = ts_norm2(sol_vec, res_vec)
     ret = sqrt(ret/U);
 end
 
-function draw_profile(sol_vec)
-    global P N K z iCH4 iH2 iO2 iN2 iH2O iCO iCO2 iNO iNO2 gas MW;
+function ret = bilger(Yc, Yh, Yo)
+    % Compute the mixture fraction using the Bilger formula.
+    global MW_C MW_H MW_O Yc_fu Yh_fu Yo_fu Yc_ox Yh_ox Yo_ox;
+
+    a = 2 * (Yc - Yc_ox) / MW_C + (Yh - Yh_ox) / (2*MW_H) - 2 * (Yo - Yo_ox) / MW_O;
+    b = 2 * (Yc_fu - Yc_ox) / MW_C + (Yh_fu - Yh_ox) / (2*MW_H) - 2 * (Yo_fu - Yo_ox) / MW_O;
+    ret = a / b;
+end
+
+function ret = calculate_mixture_fraction(sol_vec)
+    global P gas N;
     
+    [~, ~, T, ~, Y] = mapback_solution_vector(sol_vec);
+    ret = zeros(N, 1);
+    for i = 1:N
+        set(gas, 'T', T(i), 'P', P, 'Y', Y(:, i));
+        yc = elementalMassFraction(gas, 'C');
+        yh = elementalMassFraction(gas, 'H');
+        yo = elementalMassFraction(gas, 'O');
+        ret(i) = bilger(yc, yh, yo);
+    end
+end
+
+function show_profile(sol_vec)
+    global P N K z iCH4 iH2 iO2 iN2 iAR iH2O iCO iCO2 iNO iNO2 gas MW;
+    
+    Z = calculate_mixture_fraction(sol_vec);
     [u, V, T, Nbla, Y] = mapback_solution_vector(sol_vec);
     rho = zeros(N, 1);
     for i = 1:N
@@ -557,103 +593,67 @@ function draw_profile(sol_vec)
         RR(:, i) = w .* MW; % Kg / (m^3 * s)
     end
     
+    ax1 = subplot(4, 7, [1 2 3 8 9 10 15 16 17]);
+    plot(ax1, z, Y(iCH4, :), z, Y(iH2, :), z, Y(iN2, :), z, Y(iO2, :), z, Y(iAR, :)*10, z, Y(iH2O, :), z, Y(iCO, :)*10, z, Y(iCO2, :)*10, z, Y(iNO, :)*1e3, z, Y(iNO2, :)*1e4);
+    legend(ax1, 'Y_{CH_4}','Y_{H_2}','Y_{N_2}','Y_{O_2}','10\cdotY_{AR}','Y_{H_2O}','10\cdotY_{CO}','10\cdotY_{CO_2}','1e3\cdotY_{NO}','1e4\cdotY_{NO_2}');
+    ylim(ax1, [0 1]);
+    title(ax1, "Y");
     
-    h = figure(1);
-    set(h, 'position', get(0,'ScreenSize'));
-
-    subplot(3, 6, 1)
-    plot(z, T)
-    title('$$T$$','Interpreter','latex');
-    xlabel('z / m')
-    ylabel('K')
-
-    subplot(3, 6, 2)
-    plot(z, rho)
-    title('$$\rho$$','Interpreter','latex');
-    xlabel('z / m');
-    ylabel('Kg\cdotm^{-3}');
-
-    subplot(3, 6, 3)
-    plot(z, u);
-    title('$$u$$','Interpreter','latex')
-    xlabel('z / m');
-    ylabel('m/s');
-
-    subplot(3, 6, 4)
-    plot(z, RS);
-    title('$$-\sum{h_k\dot{\omega}_k}$$','Interpreter','latex')
-    xlabel('z / m');
-    ylabel('J\cdotm^{-3}\cdots^{-1}');
-
-    subplot(3, 6, 5)
-    plot(z, Y(iNO, :))
-    title('Y_{NO}');
-    xlabel('z / m');
-
-    subplot(3, 6, 6)
-    plot(z, Y(iCO, :))
-    title('Y_{CO}');
-    xlabel('z / m');
-
-    subplot(3, 6, 7)
-    plot(z, Y(iCH4, :))
-    title('Y_{CH4}');
-    xlabel('z / m');
-
-    subplot(3, 6, 8)
-    plot(z, Y(iO2, :))
-    title('Y_{O2}');
-    xlabel('z / m');
-
-    subplot(3, 6, 9)
-    plot(z, Y(iCO2, :))
-    title('Y_{CO2}')
-    xlabel('z / m')
-
-    subplot(3, 6, 10)
-    plot(z, Y(iH2O, :))
-    title('Y_{H2O}')
-    xlabel('z / m')
-
-    subplot(3, 6, 11)
-    plot(z, Y(iH2, :))
-    title('Y_{H2}')
-    xlabel('z / m')
-
-    subplot(3, 6, 12)
-    plot(z, Y(iN2, :))
-    title('Y_{N2}')
-    xlabel('z / m')
-
-    subplot(3, 6, 13)
-    plot(z, RR(iCH4, :))
-    title('$$\dot{\omega}_{CH_4}$$','Interpreter','latex');
-    xlabel('z / m')
-    ylabel('Kg\cdotm^{-3}\cdots^{-1}')
-
-    subplot(3, 6, 14)
-    plot(z, RR(iO2, :))
-    title('$$\dot{\omega}_{O_2}$$','Interpreter','latex');
-    xlabel('z / m')
-    ylabel('Kg\cdotm^{-3}\cdots^{-1}')
-
-    subplot(3, 6, 15)
-    plot(z, RR(iCO2, :))
-    title('$$\dot{\omega}_{CO_2}$$','Interpreter','latex');
-    xlabel('z / m')
-    ylabel('Kg\cdotm^{-3}\cdots^{-1}')
-
-    subplot(3, 6, 16)
-    plot(z, RR(iH2O, :))
-    title('$$\dot{\omega}_{H_2O}$$','Interpreter','latex');
-    xlabel('z / m')
-    ylabel('Kg\cdotm^{-3}\cdots^{-1}')
-
-    subplot(3, 6, 17)
-    plot(z, RR(iH2, :))
-    title('$$\dot{\omega}_{H_2}$$','Interpreter','latex');
-    xlabel('z / m')
-    ylabel('Kg\cdotm^{-3}\cdots^{-1}')
+    ax2 = subplot(4, 7, [22 23 24]);
+    yyaxis left
+    plot(ax2, z, Z);
+    ylabel(ax2, "Z");
+    yyaxis right
+    plot(ax2, z, T);
+    ylabel(ax2, "T/K");
+    
+    ax3 = subplot(4, 7, [4 5 6]);
+    plot(ax3, z, RR(iCH4, :), z, RR(iH2, :), z, RR(iO2, :), z, RR(iH2O, :));
+    legend(ax3, 'RR_{CH_4}','RR_{H_2}','RR_{O_2}','RR_{H_2O}');
+    title(ax3, '$$\dot{\omega}$$','Interpreter','latex');
+    ylabel('Kg\cdotm^{-3}\cdots^{-1}');
+    
+    ax4 = subplot(4, 7, [11 12 13]);
+    plot(ax4, z, RR(iCO, :), z, RR(iCO2, :));
+    legend(ax4,'RR_{CO}','RR_{CO_2}');
+    title(ax4, '$$\dot{\omega}$$','Interpreter','latex');
+    ylabel('Kg\cdotm^{-3}\cdots^{-1}');
+    
+    ax5 = subplot(4, 7, [18 19 20]);
+    plot(ax5, z, RR(iNO, :), z, RR(iNO2, :)*1e2);
+    legend(ax5, 'RR_{NO}','1e2\cdotRR_{NO_2}');
+    title(ax5, '$$\dot{\omega}$$','Interpreter','latex');
+    ylabel('Kg\cdotm^{-3}\cdots^{-1}');
+    
+    ax6 = subplot(4, 7, [25 26 27]);
+    plot(ax6, z, -RS);
+    ylabel(ax6, "J\cdotm^{-3}\cdots^{-1}");
+    title(ax6, '$$-\sum{h_k\dot{\omega}_k}$$','Interpreter','latex');
+    set(ax6,'YAxisLocation','right');
+    
+    ax7 = subplot(4, 7, 7);
+    plot(ax7, z, rho);
+    ylabel(ax7, "kg\cdotm^{-3}");
+    title(ax7, '$$\rho$$','Interpreter','latex');
+    set(ax7,'YAxisLocation','right');
+    
+    ax8 = subplot(4, 7, 14);
+    plot(ax8, z, u);
+    ylabel(ax8, "m\cdots^{-1}");
+    title(ax8, '$$u$$','Interpreter','latex');
+    set(ax8,'YAxisLocation','right');
+    
+    ax9 = subplot(4, 7, 21);
+    plot(ax9, z, V);
+    ylabel(ax9, "s^{-1}");
+    title(ax9, '$$V$$','Interpreter','latex');
+    set(ax9,'YAxisLocation','right');
+    
+    ax10 = subplot(4, 7, 28);
+    plot(ax10, z, Nbla);
+    ylabel(ax10, "Kg\cdotm^{-3}\cdots^{-2}");
+    title(ax10, '$$\Lambda$$','Interpreter','latex');
+    set(ax10,'YAxisLocation','right');
 end
 
 function show_solution_diff(sol1, sol2)
