@@ -108,10 +108,10 @@ global_converged = false;
 global_iter_cnt = 0;
 dt = 1e-6;
 while(~global_converged)
-    global_iter_cnt = global_iter_cnt + 1;
-    
     F = calculate_ss_residual_vector(phi);
-    ss_norm2(phi, F)
+    ss1 = norm1(F);
+    ss2 = norm2(0.0, phi, F);
+    fprintf("Iter%d: log10(ss1)=%g, ss2=%g\n", global_iter_cnt, log10(ss1), ss2);
     
     J = calculate_jacobian(0.0, phi, F);
     
@@ -119,8 +119,9 @@ while(~global_converged)
     dphi = linsolve(J, -F);
     
     % Update
-    phi = phi + dphi;
     phi_prev = phi;
+    phi = phi + dphi;
+    global_iter_cnt = global_iter_cnt + 1;
 end
 
 %% Functions
@@ -407,16 +408,6 @@ function ret = calculate_ts_residual_vector(rdt, phi_prev, phi_cur)
     end
 end
 
-function diagnose_vector(F, threshold)
-    global U C;
-    
-    for cnt = 1:U
-        if F(cnt) > threshold
-            fprintf("pnt%d-var%d: %g\n", floor((cnt-1)/C), mod(cnt-1, C) + 1, F(cnt));
-        end
-    end
-end
-
 function ret = relaxation(a, b, alpha)
     ret = (1-alpha) * a + alpha * b;
 end
@@ -485,7 +476,7 @@ function [lines, raw_data, trans_data] = load_existing_case(mf, mo, domain_len)
     lines = a(1);
 end
 
-function ret = calc_density(p, t, y)
+function ret = calculate_density(p, t, y)
     global MW K;
     
     tmp = 0;
@@ -497,55 +488,33 @@ function ret = calc_density(p, t, y)
 end
 
 function ret = norm1(res_vec)
-    ret = log10(norm(res_vec, inf));
+    ret = norm(res_vec, inf);
 end
 
-function ret = ss_norm2(sol_vec, res_vec)
-    global ss_atol ss_rtol N K C U;
-    
-    [u, V, T, Nbla, Y] = mapback_solution_vector(sol_vec);
-    
-    w = zeros(C, 1);
-    w(1) = ss_rtol(1) * norm(u, 1) / N + ss_atol(1);
-    w(2) = ss_rtol(2) * norm(V, 1) / N + ss_atol(2);
-    w(3) = ss_rtol(3) * norm(T, 1) / N + ss_atol(3);
-    w(4) = ss_rtol(4) * norm(Nbla, 1) / N + ss_atol(4);
-    for k = 1:K
-        n = k+4;
-        w(n) = ss_rtol(n) * norm(Y(k, :), 1) / N + ss_atol(n);
-    end
-    
-    [res_u, res_V, res_T, res_Nbla, res_Y] = mapback_solution_vector(res_vec);
-    
-    ret = 0.0;
-    ret = ret + sum(res_u .^ 2) / w(1)^2;
-    ret = ret + sum(res_V .^ 2) / w(2)^2;
-    ret = ret + sum(res_T .^ 2) / w(3)^2;
-    ret = ret + sum(res_Nbla .^ 2) / w(4)^2;
-    for k = 1:K
-        n = k+4;
-        ret = ret + sum(res_Y(k, :) .^ 2) / w(n)^2;
-    end
-    
-    ret = sqrt(ret/U);
-end
+function ret = norm2(rdt, sol, res)
+    global ts_atol ts_rtol ss_atol ss_rtol N K C U;
 
-function ret = ts_norm2(sol_vec, res_vec)
-    global ts_atol ts_rtol N K C U;
-    
-    [u, V, T, Nbla, Y] = mapback_solution_vector(sol_vec);
-    
-    w = zeros(C, 1);
-    w(1) = ts_rtol(1) * norm(u, 1) / N + ts_atol(1);
-    w(2) = ts_rtol(2) * norm(V, 1) / N + ts_atol(2);
-    w(3) = ts_rtol(3) * norm(T, 1) / N + ts_atol(3);
-    w(4) = ts_rtol(4) * norm(Nbla, 1) / N + ts_atol(4);
-    for k = 1:K
-        n = k+4;
-        w(n) = ts_rtol(n) * norm(Y(k, :), 1) / N + ts_atol(n);
+    if rdt == 0.0
+        loc_atol = ss_atol;
+        loc_rtol = ss_rtol;
+    else
+        loc_atol = ts_atol;
+        loc_rtol = ts_rtol;
     end
     
-    [res_u, res_V, res_T, res_Nbla, res_Y] = mapback_solution_vector(res_vec);
+    [u, V, T, Nbla, Y] = mapback_solution_vector(sol);
+    
+    w = zeros(C, 1);
+    w(1) = loc_rtol(1) * norm(u, 1) / N + loc_atol(1);
+    w(2) = loc_rtol(2) * norm(V, 1) / N + loc_atol(2);
+    w(3) = loc_rtol(3) * norm(T, 1) / N + loc_atol(3);
+    w(4) = loc_rtol(4) * norm(Nbla, 1) / N + loc_atol(4);
+    for k = 1:K
+        n = k+4;
+        w(n) = loc_rtol(n) * norm(Y(k, :), 1) / N + loc_atol(n);
+    end
+    
+    [res_u, res_V, res_T, res_Nbla, res_Y] = mapback_solution_vector(res);
     
     ret = 0.0;
     ret = ret + sum(res_u .^ 2) / w(1)^2;
@@ -583,6 +552,16 @@ function ret = calculate_mixture_fraction(sol_vec)
     end
 end
 
+function diagnose_vector(F, threshold)
+    global U C;
+    
+    for cnt = 1:U
+        if F(cnt) > threshold
+            fprintf("pnt%d-var%d: %g\n", floor((cnt-1)/C), mod(cnt-1, C) + 1, F(cnt));
+        end
+    end
+end
+
 function show_solution_profile(sol_vec)
     global P N K z iCH4 iH2 iO2 iN2 iAR iH2O iCO iCO2 iNO iNO2 gas MW;
     
@@ -590,7 +569,7 @@ function show_solution_profile(sol_vec)
     [u, V, T, Nbla, Y] = mapback_solution_vector(sol_vec);
     rho = zeros(N, 1);
     for i = 1:N
-        rho(i) = calc_density(P, T(i), Y(:, i));
+        rho(i) = calculate_density(P, T(i), Y(:, i));
     end
     RS = zeros(N, 1); % Energy source due to chemical reaction, J / (m^3 * s)
     RR = zeros(K, N); % Chemical reaction rate, Kg / (m^3 * s)
@@ -686,8 +665,8 @@ function show_solution_diff(sol0, sol1)
     rho0 = zeros(N, 1);
     rho1 = zeros(N, 1);
     for i = 1:N
-        rho0(i) = calc_density(P, T0(i), Y0(:, i));
-        rho1(i) = calc_density(P, T1(i), Y1(:, i));
+        rho0(i) = calculate_density(P, T0(i), Y0(:, i));
+        rho1(i) = calculate_density(P, T1(i), Y1(:, i));
     end
     delta_rho = rho1 - rho0;
     
