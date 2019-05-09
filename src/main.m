@@ -109,9 +109,10 @@ global_iter_cnt = 0;
 dt = 1e-6;
 while(~global_converged)
     F = calculate_ss_residual_vector(phi);
+    diagnose_vector(abs(F), 1e4);
     ss1 = norm1(F);
     ss2 = norm2(0.0, phi, F);
-    fprintf("Iter%d: log10(ss1)=%g, ss2=%g\n", global_iter_cnt, log10(ss1), ss2);
+    fprintf("Iter%d: ss1=%g, ss2=%g\n", global_iter_cnt, ss1, ss2);
     
     J = calculate_jacobian(0.0, phi, F);
     
@@ -210,13 +211,12 @@ function ret = calculate_ss_residual_vector(phi)
     D = zeros(K, N); %Binary diffusion coefficients, m^2 / s
     RS = zeros(N, 1); %Energy source due to chemical reaction, J / (m^3 * s)
     RR = zeros(K, N); %Chemical reaction rate, Kg / (m^3 * s)
-    j = zeros(K, N); % Diffusion mass flux, Kg / (m^2 * s)
     
     % Properties
     for i = 1:N
         loc_T = T(i); % K
-        set(gas, 'T', loc_T, 'P', P, 'Y', squeeze(Y(:, i)));
-        rho(i) = density(gas); %Kg / m^3
+        set(gas, 'T', loc_T, 'P', P, 'Y', Y(:, i));
+        rho(i) = density(gas); % Kg / m^3
         mu(i) = viscosity(gas); % Pa * s = Kg / (m * s)
         lambda(i) = thermalConductivity(gas); % W / (m * K)
         Cp(i) = cp_mass(gas); % J / (Kg * K)
@@ -230,51 +230,61 @@ function ret = calculate_ss_residual_vector(phi)
     
     % Derivatives
     dVdz = df_upwind(V, z, u);
-    ddVddz = ddf(V, z);
     dTdz = df_upwind(T, z, u);
-    ddTddz = ddf(T, z);
     dYdz = zeros(K, N);
-    ddYddz = zeros(K, N);
     for k = 1:K
         dYdz(k, :) = df_upwind(Y(k, :), z, u);
-        ddYddz(k, :) = ddf(Y(k, :), z);
     end
-     
-     % Species diffusion mass flux
-     for i = 1:N
-         j(:, i) = -rho(i) * D(:, i) .* dYdz(:, i); % Be careful with sign convention
+    
+    j = zeros(K, N); % Diffusion mass flux, Kg / (m^2 * s)
+    for i = 1:N
+         j(:, i) = -rho(i) * D(:, i) .* dYdz(:, i); % Be careful with sign convention.
          j(:, i) = j(:, i) - Y(:, i) * sum(j(:, i)); % Ensure the sum of mass flux is zero.
      end
-    
+
+    % Divergence
+    divVisc = df_central(mu .* dVdz, z);
+    divHeat = df_central(lambda .* dTdz, z);
+    divDiffus = zeros(K, N);
+    for k = 1:K
+        divDiffus(k, :) = df_central(j(k, :), z);
+    end
+
     % Residuals
     ret = zeros(U, 1);
     cnt = 1;
     for i = 1:N
-        % Continuity equation
+        % Continuity
         if i == N
             ret(cnt) = rho(i) * u(i) - mdot_R; % B.C. of mdot at right.
         else
             ret(cnt) = (rho(i+1) * u(i+1) - rho(i) * u(i))/(z(i+1) - z(i)) + rho(i) * V(i) + rho(i+1) * V(i+1);
         end
         cnt = cnt +1;
-        % Radial Momentum
+        % Continuity eqn done.
+        
+        % Radial momentum
         if i == 1 || i == N
             ret(cnt) = V(i); % B.C. of V at both left and right.
         else
-            ret(cnt) = rho(i)*u(i)*dVdz(i)+rho(i)*V(i)^2 + Nbla(i) - mu(i)*ddVddz(i);
+            ret(cnt) = rho(i)*u(i)*dVdz(i)+rho(i)*V(i)^2 + Nbla(i) - divVisc(i);
             ret(cnt) = ret(cnt) / rho(i);
         end
         cnt = cnt + 1;
+        % Radial momentum eqn done.
+        
         % Energy
         if i == 1
             ret(cnt) = T(i) - T_L; % B.C. of T at left.
         elseif i == N
             ret(cnt) = T(i) - T_R; % B.C. of T at right.
         else
-            ret(cnt) = rho(i)*Cp(i)*u(i)*dTdz(i)-lambda(i)*ddTddz(i)+RS(i)+dot(j(:, i),Cp_R(:, i))*dTdz(i);
-            ret(cnt) = ret(cnt) / (rho(i) * Cp(i));
+            ret(cnt) = rho(i)*Cp(i)*u(i)*dTdz(i)-divHeat(i)+RS(i)+dot(j(:, i),Cp_R(:, i))*dTdz(i);
+            ret(cnt) = ret(cnt) / (rho(i)*Cp(i));
         end
         cnt = cnt + 1;
+        % Energy eqn done.
+        
         % Eigenvalue
         if i == 1
             ret(cnt) = rho(i) * u(i) - mdot_L; % B.C. of mdot at left.
@@ -282,18 +292,21 @@ function ret = calculate_ss_residual_vector(phi)
             ret(cnt) = Nbla(i) - Nbla(i-1);
         end
         cnt = cnt + 1;
+        % Eigenvalue eqn done.
+        
         % Species
         for k = 1:K
             if i == 1
-                ret(cnt) = rho(i) * u(i) * Y(k, i) + j(k, i) - mdot_L * Y_L(k); % B.C. of Y_k at left.
+                ret(cnt) = Y(k, i) - Y_L(k); % B.C. of Y_k at left.
             elseif i==N
-                ret(cnt) = rho(i) * u(i) * Y(k, i) + j(k, i) - mdot_R * Y_R(k); % B.C. of Y_k at right.
+                ret(cnt) = Y(k, i) - Y_R(k); % B.C. of Y_k at right.
             else
-                ret(cnt) = rho(i)*u(i)*dYdz(k, i)-rho(i)*D(k,i)*ddYddz(k,i)-RR(k, i);
+                ret(cnt) = rho(i)*u(i)*dYdz(k, i)+divDiffus(k, i)-RR(k, i);
                 ret(cnt) = ret(cnt) / rho(i);
             end
             cnt = cnt + 1;
         end
+        % Species eqn done.
     end
     
     if cnt ~= U+1
@@ -413,10 +426,9 @@ function ret = relaxation(a, b, alpha)
 end
 
 function ret = df_upwind(f, x, upwind_var)
-    %Upwind 1st order difference
-    
+    % 1st order derivative using upwind difference.
     N = length(x);
-    ret = zeros(1, N);
+    ret = zeros(N, 1);
     
     ret(1) = (f(2) - f(1))/(x(2)-x(1));
     for i = 2 : N-1
@@ -429,11 +441,22 @@ function ret = df_upwind(f, x, upwind_var)
     ret(N) = (f(N) - f(N-1))/(x(N)-x(N-1));
 end
 
-function ret = ddf(f, x)
-    %Central 2nd order difference
-    
+function ret = df_central(f, x)
+    % 1st order derivative using central difference.
     N = length(x);
-    ret = zeros(1, N);
+    ret = zeros(N, 1);
+    
+    ret(1) = ((x(2) - x(1)) / (x(3) - x(1)) * (f(3) - f(1)) - (x(3) - x(1)) / (x(2) - x(1)) * (f(2) - f(1))) / (x(2) - x(3));
+    for i = 2:N-1
+        ret(i) = ((x(i) - x(i - 1)) / (x(i + 1) - x(i)) * (f(i + 1) - f(i)) - (x(i + 1) - x(i)) / (x(i) - x(i - 1)) * (f(i - 1) - f(i))) / (x(i + 1) - x(i - 1));
+    end
+    ret(N) = ((x(N) - x(N-2)) / (x(N) - x(N-1)) * (f(N-1) - f(N)) - (x(N) - x(N-1)) / (x(N) - x(N-2)) * (f(N-2) - f(N))) / (x(N-2) - x(N-1));
+end
+
+function ret = ddf(f, x)
+    % 2nd order derivative using central difference.
+    N = length(x);
+    ret = zeros(N, 1);
     
     ret(1) = 2.0/(x(2)-x(3))*((f(2)-f(1))/(x(2)-x(1)) - (f(3)-f(1))/(x(3)-x(1)));
     for i = 2 : N-1
@@ -742,4 +765,10 @@ function show_solution_diff(sol0, sol1)
     plot(z, delta_Y(iCO, :))
     title('$$\Delta Y_{CO}$$','Interpreter','latex');
     xlabel('z / m');
+end
+
+function x = solve_tri_block_diagnoal(A, b, bw)
+    N = length(b);
+    x = zeros(N, 1);
+    % TODO
 end
