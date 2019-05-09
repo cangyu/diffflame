@@ -4,7 +4,7 @@ clear all; close all; clc;
 global N K  C U z zL zR mdot_L mdot_R T_L T_R Y_L Y_R;
 global Le P gas MW NAME iCH4 iH2 iO2 iN2 iAR iH2O iCO iCO2 iNO iNO2;
 global rtol atol ss_atol ss_rtol ts_atol ts_rtol mask phi_prev F_prev J_prev;
-global MW_C MW_H MW_O Yc_fu Yh_fu Yo_fu Yc_ox Yh_ox Yo_ox;
+global MW_C MW_H MW_O MW_N Yc_fu Yh_fu Yo_fu Yc_ox Yh_ox Yo_ox;
 
 %% Mechanism
 gas = GRI30('Mix'); % Use the GRI 3.0 mechanism.
@@ -13,10 +13,6 @@ MW = molecularWeights(gas); % Molecular weight, Kg/Kmol
 NAME = speciesNames(gas); % Name of each species
 K = nSpecies(gas); % Total num of species
 C = 4+K;  % Num of unknowns per node, (u V T Nbla Y) in sequence.
-
-MW_C = 12.011;
-MW_H = 1.00794;
-MW_O = 15.9994;
 
 iCH4 = speciesIndex(gas, 'CH4');
 iH2 = speciesIndex(gas, 'H2');
@@ -28,6 +24,11 @@ iCO = speciesIndex(gas, 'CO');
 iCO2 = speciesIndex(gas, 'CO2');
 iNO = speciesIndex(gas, 'NO');
 iNO2 = speciesIndex(gas, 'NO2');
+
+MW_C = MW(iCH4) - 2*MW(iH2);
+MW_H = MW(iH2)/2;
+MW_O = MW(iO2)/2;
+MW_N = MW(iN2)/2;
 
 %% Settings
 P = oneatm; % The constant pressure, Pa
@@ -99,15 +100,15 @@ for k = 1:K
     end
 end
 mask = full(blktridiag(ones(C), ones(C), ones(C), N));
-F_prev = zeros(U, 1);
-J_prev = zeros(U, U);
-phi_prev = construct_solution_vector(u0, V0, T0, Nbla0, Y0); 
-phi = phi_prev; % Solution vector
+F_prev = zeros(U, 1); % Residual vector
+J_prev = zeros(U, U); % Jacobian matrix
+phi_prev = construct_solution_vector(u0, V0, T0, Nbla0, Y0); % Solution vector
 
 %% Solve 
 global_converged = false;
 global_iter_cnt = 0;
 dt = 1e-6;
+phi = phi_prev; 
 while(~global_converged)
     F = calculate_ss_residual_vector(phi);
     ss1 = norm1(F);
