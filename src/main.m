@@ -69,34 +69,34 @@ U = C*N; % Total num of unknowns
 zL = raw_data(1, 1); % Position of left endpoint, m
 zR = raw_data(N, 1); % Position of right endpoint, m
 if abs(zR - zL - L) > 1e-6
-    error("Inconsistent domain size");
+    error('Inconsistent domain size');
 end
 z = raw_data(:, 1); % Coordinates for each point, m
 rho0 = trans_data(:, 1);
 u0 = raw_data(:, 2);
 if abs(rho0(1) * u0(1) - mdot_L) > 1e-6 
-    error("Inconsistent mass flux at left");
+    error('Inconsistent mass flux at left');
 end
 if abs(rho0(N) * u0(N) - mdot_R) > 1e-6
-    error("Inconsistent mass flux at right");
+    error('Inconsistent mass flux at right');
 end
 V0 = raw_data(:, 3);
 T0 = raw_data(:, 4);
 if abs(T0(1) - T_L) > 1e-6
-    error("Inconsistent temperature at left");
+    error('Inconsistent temperature at left');
 end
 if abs(T0(N) - T_R) > 1e-6
-    error("Inconsistent temperature at right");
+    error('Inconsistent temperature at right');
 end
 Nbla0 = raw_data(:, 5);
 Y0 = zeros(K, N);
 for k = 1:K
     Y0(k, :) = raw_data(:, 5+k);
     if abs(Y0(k, 1) - Y_L(k)) > 1e-6
-        error("Inconsistent Y_%s at left", NAME{k});
+        error('Inconsistent Y_%s at left', NAME{k});
     end
     if abs(Y0(k, N) - Y_R(k)) > 1e-6
-        error("Inconsistent Y_%s at right", NAME{k});
+        error('Inconsistent Y_%s at right', NAME{k});
     end
 end
 mask = full(blktridiag(ones(C), ones(C), ones(C), N));
@@ -113,7 +113,7 @@ while(~global_converged)
     F = calculate_residual_vector(0.0, phi);
     ss1 = norm1(F);
     ss2 = norm2(0.0, phi, F);
-    fprintf("Iter%d: ss1=%g, ss2=%g\n", global_iter_cnt, ss1, ss2);
+    fprintf('Iter%d: ss1=%g, ss2=%g\n', global_iter_cnt, ss1, ss2);
     
     J = calculate_jacobian(rdt, phi, F);
     J0 = J .* mask;
@@ -135,9 +135,9 @@ function J = calculate_jacobian(rdt, phi, F)
     J = zeros(U, U);
     
     if rdt == 0.0
-        fprintf("Calculating Steady-State Jacobian matrix ...\n");
+        fprintf('Calculating Steady-State Jacobian matrix ...\n');
     else
-        fprintf("Calculating Time-Stepping Jacobian matrix ...\n");
+        fprintf('Calculating Time-Stepping Jacobian matrix ...\n');
     end
     
     tic
@@ -167,7 +167,7 @@ function ret = construct_solution_vector(u, V, T, Nbla, Y)
     end
     
     if cnt ~= U+1
-        error("Internal error!");
+        error('Internal error!');
     end
 end
 
@@ -192,7 +192,7 @@ function [u, V, T, Nbla, Y] = mapback_solution_vector(phi)
     end
     
     if cnt ~= U+1
-        error("Internal error!");
+        error('Internal error!');
     end
 end
 
@@ -311,7 +311,7 @@ function ret = calculate_residual_vector(rdt, phi)
     end
     
     if cnt ~= U+1
-        error("Internal error!");
+        error('Internal error!');
     end
 end
 
@@ -375,9 +375,9 @@ function ret = perturbation_delta(x)
 end
 
 function [lines, raw_data, trans_data] = load_existing_case(mf, mo, domain_len)
-    case_str = sprintf("mf=%g_mo=%g_L=%g", mf, mo, domain_len);
-    raw_data_path = "../data/" + case_str + "_raw.txt";
-    trans_data_path = "../data/" + case_str + "_transformed.txt";
+    case_str = sprintf('mf=%g_mo=%g_L=%g', mf, mo, domain_len);
+    raw_data_path = '../data/' + case_str + '_raw.txt';
+    trans_data_path = '../data/' + case_str + '_transformed.txt';
     
     raw_tbl = importdata(raw_data_path);
     raw_data = raw_tbl.data;
@@ -388,7 +388,7 @@ function [lines, raw_data, trans_data] = load_existing_case(mf, mo, domain_len)
     a = size(raw_data);
     b = size(trans_data);
     if  a(1) ~= b(1)
-        error("Inconsistent input data!");
+        error('Inconsistent input data!');
     end
     lines = a(1);
 end
@@ -474,7 +474,7 @@ function diagnose_vector(F, threshold)
     
     for cnt = 1:U
         if F(cnt) > threshold
-            fprintf("pnt%d-var%d: %g\n", floor((cnt-1)/C), mod(cnt-1, C) + 1, F(cnt));
+            fprintf('pnt%d-var%d: %g\n', floor((cnt-1)/C), mod(cnt-1, C) + 1, F(cnt));
         end
     end
 end
@@ -503,16 +503,16 @@ function show_solution_profile(sol_vec)
     plot(ax1, z, Y(iCH4, :), z, Y(iH2, :), z, Y(iN2, :), z, Y(iO2, :), z, Y(iAR, :)*10, z, Y(iH2O, :), z, Y(iCO, :)*10, z, Y(iCO2, :)*10, z, Y(iNO, :)*1e3, z, Y(iNO2, :)*1e4);
     legend(ax1, 'Y_{CH_4}','Y_{H_2}','Y_{N_2}','Y_{O_2}','10\cdotY_{AR}','Y_{H_2O}','10\cdotY_{CO}','10\cdotY_{CO_2}','1e3\cdotY_{NO}','1e4\cdotY_{NO_2}');
     ylim(ax1, [0 1]);
-    title(ax1, "Y");
+    title(ax1, 'Y');
     
     ax2 = subplot(4, 7, [22 23 24]);
     xlabel('z / m');
     yyaxis left
     plot(ax2, z, Z);
-    ylabel(ax2, "Z");
+    ylabel(ax2, 'Z');
     yyaxis right
     plot(ax2, z, T);
-    ylabel(ax2, "T/K");
+    ylabel(ax2, 'T/K');
     
     ax3 = subplot(4, 7, [4 5 6]);
     plot(ax3, z, RR(iCH4, :), z, RR(iH2, :), z, RR(iO2, :), z, RR(iH2O, :));
@@ -534,32 +534,32 @@ function show_solution_profile(sol_vec)
     
     ax6 = subplot(4, 7, [25 26 27]);
     plot(ax6, z, -RS);
-    ylabel(ax6, "J\cdotm^{-3}\cdots^{-1}");
+    ylabel(ax6, 'J\cdotm^{-3}\cdots^{-1}');
     title(ax6, '$$-\sum{h_k\dot{\omega}_k}$$','Interpreter','latex');
     set(ax6,'YAxisLocation','right');
     xlabel('z / m');
     
     ax7 = subplot(4, 7, 7);
     plot(ax7, z, rho);
-    ylabel(ax7, "kg\cdotm^{-3}");
+    ylabel(ax7, 'kg\cdotm^{-3}');
     title(ax7, '$$\rho$$','Interpreter','latex');
     set(ax7,'YAxisLocation','right');
     
     ax8 = subplot(4, 7, 14);
     plot(ax8, z, u);
-    ylabel(ax8, "m\cdots^{-1}");
+    ylabel(ax8, 'm\cdots^{-1}');
     title(ax8, '$$u$$','Interpreter','latex');
     set(ax8,'YAxisLocation','right');
     
     ax9 = subplot(4, 7, 21);
     plot(ax9, z, V);
-    ylabel(ax9, "s^{-1}");
+    ylabel(ax9, 's^{-1}');
     title(ax9, '$$V$$','Interpreter','latex');
     set(ax9,'YAxisLocation','right');
     
     ax10 = subplot(4, 7, 28);
     plot(ax10, z, Nbla);
-    ylabel(ax10, "Kg\cdotm^{-3}\cdots^{-2}");
+    ylabel(ax10, 'Kg\cdotm^{-3}\cdots^{-2}');
     title(ax10, '$$\Lambda$$','Interpreter','latex');
     set(ax10,'YAxisLocation','right');
     xlabel('z / m');
