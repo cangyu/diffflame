@@ -107,7 +107,7 @@ phi_prev = construct_solution_vector(u0, V0, T0, Nbla0, Y0); % Solution vector
 %% Solve 
 global_converged = false;
 global_iter_cnt = 0;
-dt = 1e-6;
+rdt = 0.0;
 phi = phi_prev; 
 while(~global_converged)
     F = calculate_residual_vector(0.0, phi);
@@ -115,7 +115,7 @@ while(~global_converged)
     ss2 = norm2(0.0, phi, F);
     fprintf("Iter%d: ss1=%g, ss2=%g\n", global_iter_cnt, ss1, ss2);
     
-    J = calculate_jacobian(0.0, phi, F);
+    J = calculate_jacobian(rdt, phi, F);
     J0 = J .* mask;
     
     % Solve the Jacobian
