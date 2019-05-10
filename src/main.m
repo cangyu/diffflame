@@ -105,27 +105,58 @@ J_prev = zeros(U, U); % Jacobian matrix
 phi_prev = construct_solution_vector(u0, V0, T0, Nbla0, Y0); % Solution vector
 
 %% Solve 
-global_converged = false;
-global_iter_cnt = 0;
+gConverged = false;
+gIterCnt = 0;
 rdt = 0.0;
 phi = phi_prev; 
-while(~global_converged)
+updateJac = true;
+while(~gConverged)
     F = calculate_residual_vector(0.0, phi);
-    ss1 = norm1(F);
-    ss2 = norm2(0.0, phi, F);
-    fprintf('Iter%d: ss1=%g, ss2=%g\n', global_iter_cnt, ss1, ss2);
+    fprintf('Iter%d: log10(ss)=%g\n', gIterCnt, norm1(F));
     
-    J = calculate_jacobian(rdt, phi, F);
-    J0 = J .* mask;
+    % Calculate the Jacobian
+    if updateJac
+        J = calculate_jacobian(rdt, phi, F);
+        J = J .* mask; % Enforce off-tri-diagnoal blocks to be 0.
+        updateJac = false;
+    end
     
     % Solve the Jacobian
     dphi = linsolve(J, -F);
-    dphi0 = linsolve(J0, -F);
+    
+    % Damping
+    if norm1(dphi) < max(atol, rtol*norm1(phi))
+        gConverge = true;
+    else
+        tau = 1.0;
+        dampingCnt = 0;
+        dampingOK = false;
+        x = dphi;
+        while ~dampingOK
+            if dampingCnt > 7
+                break;
+            end
+            tau = tau / sqrt(2);
+            x = tau * x;
+            F_damp = calculate_residual_vector(0.0, x);
+            dphi_damp = linsolve(J, -F_damp);
+            if norm1(dphi_damp) < norm1(dphi)
+                dampingOK = true;
+            end
+            dampingCnt = dampingCnt + 1;
+        end
+        if ~dampingOK
+            fprintf('Failed!\n');
+            exit(-1);
+        else
+            dphi = x;
+        end
+    end
     
     % Update
     phi_prev = phi;
     phi = phi + dphi;
-    global_iter_cnt = global_iter_cnt + 1;
+    gIterCnt = gIterCnt + 1;
 end
 
 %% Functions
