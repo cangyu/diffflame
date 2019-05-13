@@ -465,8 +465,8 @@ end
 
 function [lines, raw_data, trans_data] = load_existing_case(mf, mo, domain_len)
     case_str = sprintf('../data/mf=%g_mo=%g_L=%g', mf, mo, domain_len);
-    raw_data_path = case_str + "_raw.txt";
-    trans_data_path = case_str + "_transformed.txt";
+    raw_data_path = sprintf('%s_raw.txt', case_str);
+    trans_data_path = sprintf('%s_transformed.txt', case_str);
     
     raw_tbl = importdata(raw_data_path);
     raw_data = raw_tbl.data;
