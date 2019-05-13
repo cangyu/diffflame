@@ -3,7 +3,7 @@ clear; close all; clc;
 
 global N K  C U z zL zR mdot_L mdot_R T_L T_R Y_L Y_R DampFactor MaxDampRound;
 global Le P gas MW NAME iCH4 iH2 iO2 iN2 iAR iH2O iCO iCO2 iNO iNO2;
-global rtol atol ss_atol ss_rtol ts_atol ts_rtol mask phi_prev F_prev J_prev;
+global rtol atol ss_atol ss_rtol ts_atol ts_rtol mask phi_prev F_prev J_prev ts_mask;
 global MW_C MW_H MW_O MW_N Yc_fu Yh_fu Yo_fu Yc_ox Yh_ox Yo_ox;
 
 %% Mechanism
@@ -101,6 +101,7 @@ for k = 1:K
         error('Inconsistent Y_%s at right', NAME{k});
     end
 end
+ts_mask = transient_jacobian_mask();
 mask = full(blktridiag(ones(C), ones(C), ones(C), N));
 F_prev = zeros(U, 1); % Residual vector
 J_prev = zeros(U, U); % Jacobian matrix
@@ -143,6 +144,34 @@ while(true)
 end
 
 %% Functions
+function ret = transient_jacobian_mask()
+    global U N C;
+    
+    ret = ones(U, 1);
+    
+    for i = 1:C
+        ret(i) = 0;
+        ret(U-i+1) = 0;
+    end
+    
+    cnt = C+1;
+    for pnt_idx = 2:N-1
+        for var_idx = 1:C
+            if var_idx == 1 || var_idx == 4
+                ret(cnt) = 0;
+            end
+            cnt = cnt + 1;
+        end
+    end
+    
+    ret = diag(ret);
+end
+
+function ret = add_transient_term_to_jacobian(rdt, Jac)
+    global ts_mask;
+    ret = Jac + rdt * ts_mask;
+end
+
 function ret = calculate_ts_solution_vector(rdt, F0, phi0)
         loc_Jac = calculate_jacobian(rdt, phi0, F0);
         ret = phi0;
