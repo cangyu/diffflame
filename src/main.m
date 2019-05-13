@@ -1,7 +1,7 @@
 % Solve opposed diffusion flame using the damped Newton method.
-clear all; close all; clc;
+clear; close all; clc;
 
-global N K  C U z zL zR mdot_L mdot_R T_L T_R Y_L Y_R;
+global N K  C U z zL zR mdot_L mdot_R T_L T_R Y_L Y_R DampFactor MaxDampRound;
 global Le P gas MW NAME iCH4 iH2 iO2 iN2 iAR iH2O iCO iCO2 iNO iNO2;
 global rtol atol ss_atol ss_rtol ts_atol ts_rtol mask phi_prev F_prev J_prev;
 global MW_C MW_H MW_O MW_N Yc_fu Yh_fu Yo_fu Yc_ox Yh_ox Yo_ox;
@@ -41,6 +41,8 @@ ss_rtol = 1e-4*ones(C, 1);
 ts_rtol = 1e-4*ones(C, 1);
 ss_atol = 1e-9*ones(C, 1);
 ts_atol = 1e-11*ones(C, 1);
+DampFactor = sqrt(2);
+MaxDampRound = 7;
 
 %% B.C.
 mdot_L = mdot_f ; % Mass flux at left, Kg/(m^2 * s)
@@ -107,59 +109,86 @@ phi_prev = construct_solution_vector(u0, V0, T0, Nbla0, Y0); % Solution vector
 %% Solve 
 gConverged = false;
 gIterCnt = 0;
-rdt = 0.0;
+dt = 1e-6;
 phi = phi_prev; 
-updateJac = true;
-while(~gConverged)
+while(true)
+    % Check SS convergence
     F = calculate_residual_vector(0.0, phi);
-    fprintf('Iter%d: log10(ss)=%g\n', gIterCnt, norm1(F));
-    
-    % Calculate the Jacobian
-    if updateJac
-        J = calculate_jacobian(rdt, phi, F);
-        J = J .* mask; % Enforce off-tri-diagnoal blocks to be 0.
-        updateJac = false;
-    end
-    
-    % Solve the Jacobian
-    dphi = linsolve(J, -F);
-    
-    % Damping
+    fprintf('Iter%d: log10(ss)=%g\n', gIterCnt, log10(norm1(F)));
+    J = calculate_jacobian(0.0, phi, F); 
+    J = J .* mask; % Enforce off-tri-diagnoal blocks to be 0.
+    dphi = linsolve(J, -F); % The undamped correction vector.
     if norm1(dphi) < max(atol, rtol*norm1(phi))
-        gConverge = true;
-    else
-        tau = 1.0;
-        dampingCnt = 0;
-        dampingOK = false;
-        x = dphi;
-        while ~dampingOK
-            if dampingCnt > 7
-                break;
-            end
-            tau = tau / sqrt(2);
-            x = tau * x;
-            F_damp = calculate_residual_vector(0.0, x);
-            dphi_damp = linsolve(J, -F_damp);
-            if norm1(dphi_damp) < norm1(dphi)
-                dampingOK = true;
-            end
-            dampingCnt = dampingCnt + 1;
-        end
-        if ~dampingOK
-            fprintf('Failed!\n');
-            exit(-1);
-        else
-            dphi = x;
-        end
+        break;
     end
-    
+
+    % Find next solution
+    try
+        % Damping phase
+        fprintf('\tTrying Steady-State...\n');
+        phi_next = calculate_damped_solution_vector(J, phi, dphi);
+        fprintf('\tSteady-State success.\n');
+    catch
+        % Time-stepping
+        fprintf('\tSteady-State failure.\n');
+        fprintf('\tTry Time-Stepping...\n');
+        phi_next = calculate_ts_solution_vector(1/dt, F, phi);
+        fprintf('\tTime-Stepping success.\n');
+    end
+
     % Update
     phi_prev = phi;
-    phi = phi + dphi;
+    phi = phi_next;
     gIterCnt = gIterCnt + 1;
 end
 
 %% Functions
+function ret = calculate_ts_solution_vector(rdt, F0, phi0)
+        loc_Jac = calculate_jacobian(rdt, phi0, F0);
+        ret = phi0;
+        for n = 1:10
+            loc_F = calculate_residual_vector(rdt, ret);
+            loc_dphi = linsolve(loc_Jac, -loc_F);
+            ret = ret + loc_dphi;
+        end
+end
+
+function phi_next = calculate_damped_solution_vector(Jac, phi_cur, dphi0)
+    global MaxDampRound DampFactor;
+
+    tau = 1.0;
+    phi_next = phi_cur + tau * dphi0;
+    k = 0;
+    dampingOK = false;
+    
+    while ~dampingOK
+        % Check if has reached the max trial limit.
+        if k > MaxDampRound
+            break;
+        end
+        
+        % Check if the terminating condition is satisfied.
+        F_damp = calculate_residual_vector(0.0, phi_next);
+        dphi_damp = linsolve(Jac, -F_damp);
+        if norm1(dphi_damp) < norm1(dphi0)
+            dampingOK = true;
+            break;
+        end
+        
+        % Update
+        tau = tau / DampFactor;
+        phi_next = phi_cur + tau * dphi0;
+        k = k + 1;
+    end
+    
+    if ~dampingOK
+        msgID = 'DampedNewton:DampingFailure';
+        msg = 'Max damping iter reached.';
+        baseException = MException(msgID,msg);
+        throw(baseException)
+    end
+end
+
 function J = calculate_jacobian(rdt, phi, F)
     % Calculate the Jacobian by finite difference perturbations
     global U;
@@ -406,9 +435,9 @@ function ret = perturbation_delta(x)
 end
 
 function [lines, raw_data, trans_data] = load_existing_case(mf, mo, domain_len)
-    case_str = sprintf('mf=%g_mo=%g_L=%g', mf, mo, domain_len);
-    raw_data_path = '../data/' + case_str + '_raw.txt';
-    trans_data_path = '../data/' + case_str + '_transformed.txt';
+    case_str = sprintf('../data/mf=%g_mo=%g_L=%g', mf, mo, domain_len);
+    raw_data_path = case_str + "_raw.txt";
+    trans_data_path = case_str + "_transformed.txt";
     
     raw_tbl = importdata(raw_data_path);
     raw_data = raw_tbl.data;
