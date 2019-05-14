@@ -3,7 +3,7 @@ clear; close all; clc;
 
 global N K  C U z zL zR mdot_L mdot_R T_L T_R Y_L Y_R DampFactor MaxDampRound;
 global Le P gas MW NAME iCH4 iH2 iO2 iN2 iAR iH2O iCO iCO2 iNO iNO2;
-global rtol atol ss_atol ss_rtol ts_atol ts_rtol mask phi_prev F_prev J_prev ts_mask;
+global rtol atol ss_atol ss_rtol ts_atol ts_rtol mask ts_mask phi_prev gConverged;
 global MW_C MW_H MW_O MW_N Yc_fu Yh_fu Yo_fu Yc_ox Yh_ox Yo_ox;
 
 %% Mechanism
@@ -103,37 +103,35 @@ for k = 1:K
 end
 ts_mask = transient_jacobian_mask();
 mask = full(blktridiag(ones(C), ones(C), ones(C), N));
-F_prev = zeros(U, 1); % Residual vector
-J_prev = zeros(U, U); % Jacobian matrix
-phi_prev = construct_solution_vector(u0, V0, T0, Nbla0, Y0); % Solution vector
+phi_prev = construct_solution_vector(u0, V0, T0, Nbla0, Y0); 
 
 %% Solve 
 gConverged = false;
 gIterCnt = 0;
 dt = 1e-6;
-phi = phi_prev; 
-while(true)
-    % Check SS convergence
+phi = phi_prev; % Solution vector
+while(~gConverged)
     F = calculate_residual_vector(0.0, phi);
     fprintf('Iter%d: log10(ss)=%g\n', gIterCnt, log10(norm1(F)));
     J = calculate_jacobian(0.0, phi, F); 
-    J = J .* mask; % Enforce off-tri-diagnoal blocks to be 0.
+    J = J .* mask; % Enforce those off tri-diagnoal blocks being 0.
     dphi = linsolve(J, -F); % The undamped correction vector.
-    if norm1(dphi) < max(atol, rtol*norm1(phi))
+    
+    gConverged = norm1(dphi) < max(atol, rtol*norm1(phi)) || norm2(0.0, phi, dphi) < 1;
+    if gConverged
         break;
     end
 
-    % Find next solution
     try
         % Damping phase
-        fprintf('\tTrying Steady-State...\n');
+        fprintf('\tTry Steady-State...\n');
         phi_next = calculate_damped_solution_vector(J, phi, dphi);
         fprintf('\tSteady-State success.\n');
     catch
         % Time-stepping
         fprintf('\tSteady-State failure.\n');
         fprintf('\tTry Time-Stepping...\n');
-        phi_next = calculate_ts_solution_vector(1/dt, F, phi);
+        phi_next = calculate_ts_solution_vector(1/dt, J, phi);
         fprintf('\tTime-Stepping success.\n');
     end
 
@@ -142,6 +140,7 @@ while(true)
     phi = phi_next;
     gIterCnt = gIterCnt + 1;
 end
+fprintf('Done!\n');
 
 %% Functions
 function ret = transient_jacobian_mask()
@@ -172,8 +171,8 @@ function ret = add_transient_term_to_jacobian(rdt, Jac)
     ret = Jac + rdt * ts_mask;
 end
 
-function ret = calculate_ts_solution_vector(rdt, F0, phi0)
-        loc_Jac = calculate_jacobian(rdt, phi0, F0);
+function ret = calculate_ts_solution_vector(rdt, J0, phi0)
+        loc_Jac = add_transient_term_to_jacobian(rdt, J0);
         ret = phi0;
         for n = 1:10
             loc_F = calculate_residual_vector(rdt, ret);
@@ -182,39 +181,40 @@ function ret = calculate_ts_solution_vector(rdt, F0, phi0)
         end
 end
 
-function phi_next = calculate_damped_solution_vector(Jac, phi_cur, dphi0)
-    global MaxDampRound DampFactor;
+function phi_next = calculate_damped_solution_vector(Jac, phi0, dphi0)
+    global MaxDampRound DampFactor gConverged;
 
     tau = 1.0;
-    phi_next = phi_cur + tau * dphi0;
     k = 0;
     dampingOK = false;
+    s0 = norm2(0.0, phi0, dphi0);
     
     while ~dampingOK
         % Check if has reached the max trial limit.
         if k > MaxDampRound
             break;
         end
+        phi_next = phi0 + tau * dphi0;
         
         % Check if the terminating condition is satisfied.
         F_damp = calculate_residual_vector(0.0, phi_next);
         dphi_damp = linsolve(Jac, -F_damp);
-        if norm1(dphi_damp) < norm1(dphi0)
-            dampingOK = true;
+        s1 = norm2(0.0, phi_next, dphi_damp);
+        dampingOK = norm1(dphi_damp) < norm1(dphi0) || s1 < 1.0 || s1 < s0;
+        if dampingOK
+            if s1 < 1.0
+                gConverged = true;
+            end
             break;
         end
         
         % Update
         tau = tau / DampFactor;
-        phi_next = phi_cur + tau * dphi0;
         k = k + 1;
     end
     
     if ~dampingOK
-        msgID = 'DampedNewton:DampingFailure';
-        msg = 'Max damping iter reached.';
-        baseException = MException(msgID,msg);
-        throw(baseException)
+        throw('Max damping iter reached.')
     end
 end
 
@@ -486,7 +486,7 @@ function ret = norm1(res_vec)
     ret = norm(res_vec, inf);
 end
 
-function ret = norm2(rdt, sol, res)
+function ret = norm2(rdt, sol, step)
     global ts_atol ts_rtol ss_atol ss_rtol N K C U;
 
     if rdt == 0.0
@@ -509,7 +509,7 @@ function ret = norm2(rdt, sol, res)
         w(n) = loc_rtol(n) * norm(Y(k, :), 1) / N + loc_atol(n);
     end
     
-    [res_u, res_V, res_T, res_Nbla, res_Y] = mapback_solution_vector(res);
+    [res_u, res_V, res_T, res_Nbla, res_Y] = mapback_solution_vector(step);
     
     ret = 0.0;
     ret = ret + sum(res_u .^ 2) / w(1)^2;
