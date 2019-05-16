@@ -112,15 +112,13 @@ dt = 1e-6;
 phi = phi_prev; % Solution vector
 while(~gConverged)
     gIterCnt = gIterCnt + 1;
-
+    fprintf('Iter%d:\n', gIterCnt);
+    
     % Check convergence first
     F = calculate_residual_vector(0.0, phi);
-    F_cmp = importdata('res.txt');
-    fprintf('Iter%d: log10(ss)=%g\n', gIterCnt, log10(norm1(F)));
     J = calculate_jacobian(0.0, phi, F); 
-    J = J .* diag_mask; % Enforce those off tri-diagnoal blocks being 0.
     dphi = linsolve(J, -F); % The undamped correction vector.
-    gConverged = norm1(dphi) < max(atol, rtol*norm1(phi)) || norm2(0.0, phi, dphi) < 1;
+    gConverged = check_convergence(F, phi, dphi);
     if gConverged
         break;
     end
@@ -172,6 +170,128 @@ end
 fprintf('Converged!\n');
 
 %% Functions
+function ret=check_convergence(F, phi, dphi)
+    global atol rtol;
+
+    n1 = log10(norm1(F));
+    n2 = norm1(dphi);
+    n3 = max(atol, rtol*norm1(phi));
+    n4 = norm2(0.0, phi, dphi);
+    
+    fprintf('\tlog10(||F||_inf)=%g\n', n1);
+    fprintf('\t||dphi||_inf=%g, convergence criteria: %g\n', n2, n3);
+    fprintf('\t||dphi||_weighted=%g, convergence criteria: %g\n', n4, 1.0);
+    
+    ret = n2 < n3 || n4 < 1;
+end
+
+function diagnose_residual(F, F_cmp)
+    global z NAME iCH4 iH2 iO2 iN2 iAR iH2O iCO iCO2 iNO iNO2;
+
+    [res_u0, res_V0, res_T0, res_A0, res_Y0] = mapback_solution_vector(F);
+    [res_u1, res_V1, res_T1, res_A1, res_Y1] = mapback_solution_vector(F_cmp);
+    dF = F + F_cmp;
+    [res_u, res_V, res_T, res_A, res_Y] = mapback_solution_vector(dF);
+    
+    figure(1);
+    subplot(211);
+    plot(z, res_u0, 'r-', z, res_u1, 'b-');
+    title('Continuity eqn');
+    subplot(212);
+    plot(z, res_u, '-.');
+    
+    figure(2);
+    subplot(211);
+    plot(z, res_V0, 'r-', z, res_V1, 'b-');
+    title('Radial Momentum eqn');
+    subplot(212);
+    plot(z, res_V, '-.');
+    
+    figure(3);
+    subplot(211);
+    plot(z, res_T0, 'r-', z, res_T1, 'b-');
+    title('Energy eqn');
+    subplot(212);
+    plot(z, res_T, '-.');
+    
+    figure(4);
+    subplot(211);
+    plot(z, res_A0, 'r-', z, res_A1, 'b-');
+    title('Eigenvalue eqn');
+    subplot(212);
+    plot(z, res_A, '-.');
+    
+    figure(5);
+    subplot(211);
+    plot(z, res_Y0(iCH4, :), 'r-', z, res_Y1(iCH4, :), 'b-');
+    title(NAME{iCH4});
+    subplot(212);
+    plot(z, res_Y(iCH4, :), '-.');
+    
+    figure(6);
+    subplot(211);
+    plot(z, res_Y0(iH2, :), 'r-', z, res_Y1(iH2, :), 'b-');
+    title(NAME{iH2});
+    subplot(212);
+    plot(z, res_Y(iH2, :), '-.');
+
+    figure(7);
+    subplot(211);
+    plot(z, res_Y0(iO2, :), 'r-', z, res_Y1(iO2, :), 'b-');
+    title(NAME{iO2});
+    subplot(212);
+    plot(z, res_Y(iO2, :), '-.');
+    
+    figure(8);
+    subplot(211);
+    plot(z, res_Y0(iN2, :), 'r-', z, res_Y1(iN2, :), 'b-');
+    title(NAME{iN2});
+    subplot(212);
+    plot(z, res_Y(iN2, :), '-.');
+    
+    figure(9);
+    subplot(211);
+    plot(z, res_Y0(iAR, :), 'r-', z, res_Y1(iAR, :), 'b-');
+    title(NAME{iAR});
+    subplot(212);
+    plot(z, res_Y(iAR, :), '-.');
+    
+    figure(10);
+    subplot(211);
+    plot(z, res_Y0(iH2O, :), 'r-', z, res_Y1(iH2O, :), 'b-');
+    title(NAME{iH2O});
+    subplot(212);
+    plot(z, res_Y(iH2O, :), '-.');
+    
+    figure(11);
+    subplot(211);
+    plot(z, res_Y0(iCO, :), 'r-', z, res_Y1(iCO, :), 'b-');
+    title(NAME{iCO});
+    subplot(212);
+    plot(z, res_Y(iCO, :), '-.');
+    
+    figure(12);
+    subplot(211);
+    plot(z, res_Y0(iCO2, :), 'r-', z, res_Y1(iCO2, :), 'b-');
+    title(NAME{iCO2});
+    subplot(212);
+    plot(z, res_Y(iCO2, :), '-.');
+    
+    figure(13);
+    subplot(211);
+    plot(z, res_Y0(iNO, :), 'r-', z, res_Y1(iNO, :), 'b-');
+    title(NAME{iNO});
+    subplot(212);
+    plot(z, res_Y(iNO, :), '-.');
+    
+    figure(14);
+    subplot(211);
+    plot(z, res_Y0(iNO2, :), 'r-', z, res_Y1(iNO2, :), 'b-');
+    title(NAME{iNO2});
+    subplot(212);
+    plot(z, res_Y(iNO2, :), '-.');
+end
+
 function ret = transient_jacobian_mask()
     global U N C;
     
@@ -234,13 +354,13 @@ end
 
 function J = calculate_jacobian(rdt, phi, F)
     % Calculate the Jacobian by finite difference perturbations
-    global U;
+    global U diag_mask;
     J = zeros(U, U);
     
     if rdt == 0.0
-        fprintf('Calculating Steady-State Jacobian matrix ...\n');
+        fprintf('\tCalculating Steady-State Jacobian matrix ...\n');
     else
-        fprintf('Calculating Time-Stepping Jacobian matrix ...\n');
+        fprintf('\tCalculating Time-Stepping Jacobian matrix ...\n');
     end
     
     tic
@@ -252,6 +372,8 @@ function J = calculate_jacobian(rdt, phi, F)
         J(:, j) = (F_perturb - F)/delta;
     end
     toc
+    
+    J = J .* diag_mask; % Enforce those off tri-diagnoal blocks being 0.
 end
 
 function ret = construct_solution_vector(u, V, T, Nbla, Y)
@@ -330,22 +452,32 @@ function ret = calculate_residual_vector(rdt, phi)
     end
     
     % Derivatives
+    dmudz0 = df_central(mu, z);
+    dlambdadz0 = df_central(lambda, z);
+    %drhodz0 = df_central(rho, z);
     dVdz = df_upwind(V, z, u);
+    dVdz0 =  df_central(V, z);
     dTdz = df_upwind(T, z, u);
+    dTdz0 = df_central(T, z);
     dYdz = zeros(K, N);
+    dYdz0 = zeros(K, N);
+    dDdz0 = zeros(K, N);
     for k = 1:K
         dYdz(k, :) = df_upwind(Y(k, :), z, u);
+        dYdz0(k, :) = df_central(Y(k, :), z);
+        dDdz0(k, :) = df_central(D(k, :), z);
     end
-    
     j = zeros(K, N); % Diffusion mass flux, Kg / (m^2 * s)
     for i = 1:N
-         j(:, i) = -rho(i) * D(:, i) .* dYdz(:, i); % Be careful with sign convention.
+         j(:, i) = -rho(i) * D(:, i) .* dYdz0(:, i); % Be careful with sign convention.
          j(:, i) = j(:, i) - Y(:, i) * sum(j(:, i)); % Ensure the sum of mass flux is zero.
-     end
+    end
 
     % Divergence
-    divVisc = df_central(mu .* dVdz, z);
-    divHeat = df_central(lambda .* dTdz, z);
+    ddVddz = ddf(V, z);
+    divVisc = dmudz0 .* dVdz0 + mu .* ddVddz;
+    ddTddz = ddf(T, z);
+    divHeat = dlambdadz0 .* dTdz0 + lambda .* ddTddz;  
     divDiffus = zeros(K, N);
     for k = 1:K
         divDiffus(k, :) = df_central(j(k, :), z);
@@ -420,6 +552,17 @@ end
 
 function ret = relaxation(a, b, alpha)
     ret = (1-alpha) * a + alpha * b;
+end
+
+function ret = df_backward(f, x)
+    % 1st order derivative using backward difference.
+    N = length(x);
+    ret = zeros(N, 1);
+    
+    ret(1) = (f(2) - f(1))/(x(2)-x(1));
+    for i = 2 : N
+        ret(i) = (f(i) - f(i-1))/(x(i)-x(i-1));
+    end
 end
 
 function ret = df_upwind(f, x, upwind_var)
