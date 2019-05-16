@@ -16,7 +16,7 @@ using namespace Cantera;
 using namespace std;
 
 const string DATA_DIR = "../../original_database/";
-const bool USE_EXISTING_DATA = false;
+const bool USE_EXISTING_DATA = true;
 const size_t INITIAL_PNT_NUM = 51;
 
 template<typename T>
@@ -200,12 +200,10 @@ void diffflame(double mdot_f, double mdot_o, double domain_length, const vector<
     const double T_f = 300.0;
     
     // Initial grid
-    const size_t N = INITIAL_PNT_NUM;
-    const double dz = domain_length/(N-1);
+    const size_t N = init_data.size();
     vector<double> z(N, 0.0);
-    z[0] = -domain_length / 2;
-    for(auto i = 1; i < N; i++)
-        z[i] = z[i-1] + dz;
+    for(auto i = 0; i < N; i++)
+        z[i] = init_data[i][0];
 
     // Inlet boundaries of flow field
     Inlet1D fuel_inlet;

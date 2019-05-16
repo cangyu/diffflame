@@ -3,7 +3,7 @@ clear; close all; clc;
 
 global N K  C U z zL zR mdot_L mdot_R T_L T_R Y_L Y_R DampFactor MaxDampRound;
 global Le P gas MW NAME iCH4 iH2 iO2 iN2 iAR iH2O iCO iCO2 iNO iNO2;
-global rtol atol ss_atol ss_rtol ts_atol ts_rtol mask ts_mask phi_prev gConverged;
+global rtol atol ss_atol ss_rtol ts_atol ts_rtol diag_mask ts_mask phi_prev gConverged;
 global MW_C MW_H MW_O MW_N Yc_fu Yh_fu Yo_fu Yc_ox Yh_ox Yo_ox;
 
 %% Mechanism
@@ -102,7 +102,7 @@ for k = 1:K
     end
 end
 ts_mask = transient_jacobian_mask();
-mask = full(blktridiag(ones(C), ones(C), ones(C), N));
+diag_mask = full(blktridiag(ones(C), ones(C), ones(C), N));
 phi_prev = construct_solution_vector(u0, V0, T0, Nbla0, Y0); 
 
 %% Solve 
@@ -111,36 +111,65 @@ gIterCnt = 0;
 dt = 1e-6;
 phi = phi_prev; % Solution vector
 while(~gConverged)
+    gIterCnt = gIterCnt + 1;
+
+    % Check convergence first
     F = calculate_residual_vector(0.0, phi);
+    F_cmp = importdata('res.txt');
     fprintf('Iter%d: log10(ss)=%g\n', gIterCnt, log10(norm1(F)));
     J = calculate_jacobian(0.0, phi, F); 
-    J = J .* mask; % Enforce those off tri-diagnoal blocks being 0.
+    J = J .* diag_mask; % Enforce those off tri-diagnoal blocks being 0.
     dphi = linsolve(J, -F); % The undamped correction vector.
-    
     gConverged = norm1(dphi) < max(atol, rtol*norm1(phi)) || norm2(0.0, phi, dphi) < 1;
     if gConverged
         break;
     end
 
+    % If not coverged, try Steady-State seeking for a convergent solution
     try
-        % Damping phase
         fprintf('\tTry Steady-State...\n');
         phi_next = calculate_damped_solution_vector(J, phi, dphi);
+        phi_prev = phi;
+        phi = phi_next;
         fprintf('\tSteady-State success.\n');
+        SS_OK = true;
     catch
-        % Time-stepping
         fprintf('\tSteady-State failure.\n');
+        SS_OK = false;
+    end
+    
+    % If Steady-State fails, try Time-stepping to get closer to the convergent solution
+    if ~SS_OK
         fprintf('\tTry Time-Stepping...\n');
-        phi_next = calculate_ts_solution_vector(1/dt, J, phi);
+        loc_ts_cnt = 0;
+        
+        while loc_ts_cnt < 10
+            try
+                rdt = 1/dt;
+                loc_Jac = J + rdt * ts_mask;
+                loc_F = calculate_residual_vector(rdt, phi);
+                loc_dphi = linsolve(loc_Jac, -loc_F);
+                phi_next = calculate_damped_solution_vector(loc_Jac, phi, loc_dphi);
+                phi_prev = phi;
+                phi = phi_next;
+                fprintf('\t\tTime-Stepping success on dt=%g(rdt=%g), trying larger dt...\n', dt, rdt);
+                dt = dt * 1.5;
+            catch
+                fprintf('\t\tTime-Stepping failure on dt=%g(rdt=%g).\n, trying smallar dt...', dt, rdt);
+                dt = dt / 2;
+                if dt < 1e-18
+                    throw('Too small time-step.');
+                end
+            end
+            loc_ts_cnt = loc_ts_cnt + 1;
+        end
+        
         fprintf('\tTime-Stepping success.\n');
     end
-
-    % Update
-    phi_prev = phi;
-    phi = phi_next;
-    gIterCnt = gIterCnt + 1;
+    
+    fprintf('Iter%d done!\n', gIterCnt);
 end
-fprintf('Done!\n');
+fprintf('Converged!\n');
 
 %% Functions
 function ret = transient_jacobian_mask()
@@ -164,21 +193,6 @@ function ret = transient_jacobian_mask()
     end
     
     ret = diag(ret);
-end
-
-function ret = add_transient_term_to_jacobian(rdt, Jac)
-    global ts_mask;
-    ret = Jac + rdt * ts_mask;
-end
-
-function ret = calculate_ts_solution_vector(rdt, J0, phi0)
-        loc_Jac = add_transient_term_to_jacobian(rdt, J0);
-        ret = phi0;
-        for n = 1:10
-            loc_F = calculate_residual_vector(rdt, ret);
-            loc_dphi = linsolve(loc_Jac, -loc_F);
-            ret = ret + loc_dphi;
-        end
 end
 
 function phi_next = calculate_damped_solution_vector(Jac, phi0, dphi0)
