@@ -2,9 +2,9 @@
 clear; close all; clc;
 
 global N K  C U z zL zR mdot_L mdot_R T_L T_R Y_L Y_R DampFactor MaxDampRound;
-global Le P gas MW NAME iCH4 iH2 iO2 iN2 iAR iH2O iCO iCO2 iNO iNO2;
+global Le P gas MW NAME iCH4 iH2 iO2 iN2 iAR iH2O iCO iCO2 iNO iNO2 filtering_sigma;
 global rtol atol ss_atol ss_rtol ts_atol ts_rtol diag_mask ts_mask phi_prev gConverged;
-global MW_C MW_H MW_O MW_N Yc_fu Yh_fu Yo_fu Yc_ox Yh_ox Yo_ox;
+global MW_C MW_H MW_O MW_N Yc_fu Yh_fu Yo_fu Yc_ox Yh_ox Yo_ox gauss_weight;
 
 %% Mechanism
 gas = GRI30('Mix'); % Use the GRI 3.0 mechanism.
@@ -43,6 +43,7 @@ ss_atol = 1e-9*ones(C, 1);
 ts_atol = 1e-11*ones(C, 1);
 DampFactor = sqrt(2);
 MaxDampRound = 7;
+filtering_sigma = 2.52e-4;
 
 %% B.C.
 mdot_L = mdot_f ; % Mass flux at left, Kg/(m^2 * s)
@@ -101,6 +102,12 @@ for k = 1:K
         error('Inconsistent Y_%s at right', NAME{k});
     end
 end
+gauss_weight = zeros(N, N);
+for i = 1:N
+    for ii = 1:N
+        gauss_weight(i, ii) = gauss1d(z(ii)-z(i));
+    end
+end
 ts_mask = transient_jacobian_mask();
 diag_mask = full(blktridiag(ones(C), ones(C), ones(C), N));
 phi_prev = construct_solution_vector(u0, V0, T0, Nbla0, Y0); 
@@ -113,12 +120,13 @@ phi = phi_prev; % Solution vector
 while(~gConverged)
     gIterCnt = gIterCnt + 1;
     fprintf('Iter%d:\n', gIterCnt);
-    
-    % Check convergence first
     F = calculate_residual_vector(0.0, phi);
+    report_solution(F, phi);
+
+    % Check convergence first
     J = calculate_jacobian(0.0, phi, F); 
     dphi = linsolve(J, -F); % The undamped correction vector.
-    gConverged = check_convergence(F, phi, dphi);
+    gConverged = check_convergence(phi, dphi);
     if gConverged
         break;
     end
@@ -141,7 +149,7 @@ while(~gConverged)
         fprintf('\tTry Time-Stepping...\n');
         loc_ts_cnt = 0;
         
-        while loc_ts_cnt < 10
+        while loc_ts_cnt < 3
             try
                 rdt = 1/dt;
                 loc_Jac = J + rdt * ts_mask;
@@ -170,15 +178,19 @@ end
 fprintf('Converged!\n');
 
 %% Functions
-function ret=check_convergence(F, phi, dphi)
+function report_solution(F, phi)
+    [~, ~, loc_Temp, ~, ~] = mapback_solution_vector(phi);
+    fprintf('\tTmax=%gK\n', max(loc_Temp));
+    fprintf('\tlog10(||F||_inf)=%g\n', log10(norm1(F)));
+end
+
+function ret=check_convergence(phi, dphi)
     global atol rtol;
 
-    n1 = log10(norm1(F));
     n2 = norm1(dphi);
     n3 = max(atol, rtol*norm1(phi));
     n4 = norm2(0.0, phi, dphi);
     
-    fprintf('\tlog10(||F||_inf)=%g\n', n1);
     fprintf('\t||dphi||_inf=%g, convergence criteria: %g\n', n2, n3);
     fprintf('\t||dphi||_weighted=%g, convergence criteria: %g\n', n4, 1.0);
     
@@ -373,7 +385,7 @@ function J = calculate_jacobian(rdt, phi, F)
     end
     toc
     
-    J = J .* diag_mask; % Enforce those off tri-diagnoal blocks being 0.
+    %J = J .* diag_mask; % Enforce those off tri-diagnoal blocks being 0.
 end
 
 function ret = construct_solution_vector(u, V, T, Nbla, Y)
@@ -432,6 +444,8 @@ function ret = calculate_residual_vector(rdt, phi)
     Cp_R = zeros(K, N); % Specific heat of each species, J / (Kg * K)
     lambda = zeros(N, 1); %Thermal conductivity, W / (m * K)
     D = zeros(K, N); %Binary diffusion coefficients, m^2 / s
+    unfiltered_wdot = zeros(K, N); % Kmol / (m^3 * s)
+    enthalpy = zeros(K, N); % J/Kmol
     RS = zeros(N, 1); %Energy source due to chemical reaction, J / (m^3 * s)
     RR = zeros(K, N); %Chemical reaction rate, Kg / (m^3 * s)
     
@@ -445,16 +459,22 @@ function ret = calculate_residual_vector(rdt, phi)
         Cp(i) = cp_mass(gas); % J / (Kg * K)
         Cp_R(:, i) = gasconstant * cp_R(gas) ./ MW; % J / (Kg * K)
         D(:, i) = lambda(i) / (rho(i) * Cp(i)); % Compute from Unity Lewis, m^2 / s
-        w = netProdRates(gas); % Kmol / (m^3 * s)
-        h = enthalpies_RT(gas) * loc_T * gasconstant; % J/Kmol
-        RS(i) = dot(w, h); % J / (m^3 * s)
-        RR(:, i) = w .* MW; % Kg / (m^3 * s)
+        unfiltered_wdot(:, i) = netProdRates(gas); % Kmol / (m^3 * s)
+        enthalpy(:, i) = enthalpies_RT(gas) * loc_T * gasconstant; % J/Kmol
+    end
+    
+    % Filtering
+    filtered_wdot = calculate_filtered_wdot(unfiltered_wdot); % Kmol / (m^3 * s)
+    %filtered_wdot = unfiltered_wdot;
+    for i = 1:N
+        RS(i) = sum(enthalpy(:, i) .* filtered_wdot(:, i)); % J / (m^3 * s)
+        RR(:, i) = filtered_wdot(:, i) .* MW; % Kg / (m^3 * s)
     end
     
     % Derivatives
     dmudz0 = df_central(mu, z);
     dlambdadz0 = df_central(lambda, z);
-    %drhodz0 = df_central(rho, z);
+    drhodz0 = df_central(rho, z);
     dVdz = df_upwind(V, z, u);
     dVdz0 =  df_central(V, z);
     dTdz = df_upwind(T, z, u);
@@ -476,10 +496,17 @@ function ret = calculate_residual_vector(rdt, phi)
     % Divergence
     ddVddz = ddf(V, z);
     divVisc = dmudz0 .* dVdz0 + mu .* ddVddz;
+    %divVisc = df_central(mu .* dVdz0, z);
     ddTddz = ddf(T, z);
     divHeat = dlambdadz0 .* dTdz0 + lambda .* ddTddz;  
+    %divHeat = df_central(lambda .* dTdz0, z);
+    ddYddz = zeros(K, N);
+    for k = 1:K
+        ddYddz(k, :) = ddf(Y(k, :), z);
+    end
     divDiffus = zeros(K, N);
     for k = 1:K
+        %divDiffus(k, :) = -(drhodz0' .* D(k, :) .* dYdz0(k, :) + rho' .* dDdz0(k, :) .* dYdz0(k, :) + rho' .* D(k, :) .* ddYddz(k, :));
         divDiffus(k, :) = df_central(j(k, :), z);
     end
 
@@ -604,7 +631,7 @@ function ret = ddf(f, x)
         dxr = x(i+1) - x(i);
         dfl = f(i-1) - f(i);
         dfr = f(i+1) - f(i);
-        ret(i) = 2.0 / (dxl+dxr) * (dfl/dxl+dfr/dxr);
+        ret(i) = 2.0 * (dfl/dxl+dfr/dxr) / (x(i+1) - x(i-1));
     end
     ret(N) = 2.0/(x(N-2)-x(N-1))*((f(N)-f(N-2))/(x(N)-x(N-2)) - (f(N)-f(N-1))/(x(N)-x(N-1)));
 end
@@ -1082,4 +1109,21 @@ if n>1
 end
 % build the final array all in one call to sparse
 A = sparse(rind,cind,v,n*p,n*q);
+end
+
+function ret = gauss1d(x)
+    global filtering_sigma;
+
+    ret = 1.0 / (sqrt(2*pi)*filtering_sigma) * exp(-0.5*(x/filtering_sigma)^2);
+end
+
+function ret = calculate_filtered_wdot(wdot)
+    global z N K gauss_weight;
+    
+    ret = zeros(K, N);
+    for i = 1:N
+        for k = 1:K
+            ret(k, i) = trapz(z, gauss_weight(i, :) .* wdot(k, :)); 
+        end
+    end
 end
