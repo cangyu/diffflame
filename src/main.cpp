@@ -15,9 +15,11 @@
 using namespace Cantera;
 using namespace std;
 
-const string DATA_DIR = "../../original_database/";
-const bool USE_EXISTING_DATA = true;
-const size_t INITIAL_PNT_NUM = 51;
+const string DATA_DIR = "../data/";
+const bool USE_EXISTING_DATA = false;
+const size_t INITIAL_PNT_NUM = 11;
+const size_t DATA_WIDTH = 32;
+const size_t DATA_DIGITS = 18;
 
 template<typename T>
 T relaxation(const T& a, const T& b, double alpha)
@@ -149,25 +151,25 @@ void diffflame(double mdot_f, double mdot_o, double domain_length)
     ss << "mf=" << mdot_f << "_mo=" << mdot_o << "_L=" << domain_length << "_raw.txt";
     ofstream fout(ss.str());
     
-    fout << setw(18) << "x" << setw(18) << "u" << setw(18) << "V" << setw(18) << "T" << setw(18) << "Lambda";
+    fout << setw(DATA_WIDTH) << "x" << setw(DATA_WIDTH) << "u" << setw(DATA_WIDTH) << "V" << setw(DATA_WIDTH) << "T" << setw(DATA_WIDTH) << "Lambda";
     for(auto k = 0; k < K; ++k)
     {
         string yk_name = "Y_" + NAME[k];
-        fout << setw(18) << yk_name;
+        fout << setw(DATA_WIDTH) << yk_name;
     }
     fout << endl;
 
     double Tmax = 0.0;
     for(auto i = 0; i < flow.nPoints(); ++i)
     {
-        fout << setw(18) << setprecision(6) << scientific << flow.grid(i);
-        fout << setw(18) << setprecision(6) << scientific << flame.value(IdxOfFlowDomain, 0, i); // u
-        fout << setw(18) << setprecision(6) << scientific << flame.value(IdxOfFlowDomain, 1, i); // V
+        fout << setw(DATA_WIDTH) << setprecision(DATA_DIGITS) << scientific << flow.grid(i);
+        fout << setw(DATA_WIDTH) << setprecision(DATA_DIGITS) << scientific << flame.value(IdxOfFlowDomain, 0, i); // u
+        fout << setw(DATA_WIDTH) << setprecision(DATA_DIGITS) << scientific << flame.value(IdxOfFlowDomain, 1, i); // V
         double loc_T = flame.value(IdxOfFlowDomain, 2, i);
-        fout << setw(18) << setprecision(6) << scientific << loc_T; // T
+        fout << setw(DATA_WIDTH) << setprecision(DATA_DIGITS) << scientific << loc_T; // T
         if(loc_T > Tmax)
             Tmax = loc_T;
-        fout << setw(18) << setprecision(6) << scientific << flame.value(IdxOfFlowDomain, 3, i); // Lambda
+        fout << setw(DATA_WIDTH) << setprecision(DATA_DIGITS) << scientific << flame.value(IdxOfFlowDomain, 3, i); // Lambda
         for(auto k = 0; k < K; ++k)
         {
             auto yk = flame.value(IdxOfFlowDomain, 5+k, i);
@@ -175,7 +177,7 @@ void diffflame(double mdot_f, double mdot_o, double domain_length)
                 yk = 0.0;
             if(yk > 1.0)
                 yk = 1.0;
-            fout << setw(18) << setprecision(6) << scientific << yk; // Yk
+            fout << setw(DATA_WIDTH) << setprecision(DATA_DIGITS) << scientific << yk; // Yk
         }
         fout << endl;
     }
@@ -187,6 +189,13 @@ void diffflame(double mdot_f, double mdot_o, double domain_length)
 
 void diffflame(double mdot_f, double mdot_o, double domain_length, const vector<vector<double>> &init_data)
 {
+    // Setup initial grid
+    const size_t N = init_data.size();
+    cout << "Initialize using existing data with " << N << " points!" << endl;
+    vector<double> z(N, 0.0);
+    for(auto i = 0; i < N; i++)
+        z[i] = init_data[i][0];
+
     // Use the GRI3.0 mechanism
     IdealGasMix gas("gri30.cti", "gri30");
     const auto K = gas.nSpecies();
@@ -198,12 +207,6 @@ void diffflame(double mdot_f, double mdot_o, double domain_length, const vector<
     const double P = OneAtm;
     const double T_o = 300.0;
     const double T_f = 300.0;
-    
-    // Initial grid
-    const size_t N = init_data.size();
-    vector<double> z(N, 0.0);
-    for(auto i = 0; i < N; i++)
-        z[i] = init_data[i][0];
 
     // Inlet boundaries of flow field
     Inlet1D fuel_inlet;
@@ -317,25 +320,25 @@ void diffflame(double mdot_f, double mdot_o, double domain_length, const vector<
     ss << "mf=" << mdot_f << "_mo=" << mdot_o << "_L=" << domain_length << "_raw.txt";
     ofstream fout(ss.str());
     
-    fout << setw(18) << "x" << setw(18) << "u" << setw(18) << "V" << setw(18) << "T" << setw(18) << "Lambda";
+    fout << setw(DATA_WIDTH) << "x" << setw(DATA_WIDTH) << "u" << setw(DATA_WIDTH) << "V" << setw(DATA_WIDTH) << "T" << setw(DATA_WIDTH) << "Lambda";
     for(auto k = 0; k < K; ++k)
     {
         string yk_name = "Y_" + NAME[k];
-        fout << setw(18) << yk_name;
+        fout << setw(DATA_WIDTH) << yk_name;
     }
     fout << endl;
 
     double Tmax = 0.0;
     for(auto i = 0; i < flow.nPoints(); ++i)
     {
-        fout << setw(18) << setprecision(6) << scientific << flow.grid(i);
-        fout << setw(18) << setprecision(6) << scientific << flame.value(IdxOfFlowDomain, 0, i); // u
-        fout << setw(18) << setprecision(6) << scientific << flame.value(IdxOfFlowDomain, 1, i); // V
+        fout << setw(DATA_WIDTH) << setprecision(DATA_DIGITS) << scientific << flow.grid(i);
+        fout << setw(DATA_WIDTH) << setprecision(DATA_DIGITS) << scientific << flame.value(IdxOfFlowDomain, 0, i); // u
+        fout << setw(DATA_WIDTH) << setprecision(DATA_DIGITS) << scientific << flame.value(IdxOfFlowDomain, 1, i); // V
         double loc_T = flame.value(IdxOfFlowDomain, 2, i);
-        fout << setw(18) << setprecision(6) << scientific << loc_T; // T
+        fout << setw(DATA_WIDTH) << setprecision(DATA_DIGITS) << scientific << loc_T; // T
         if(loc_T > Tmax)
             Tmax = loc_T;
-        fout << setw(18) << setprecision(6) << scientific << flame.value(IdxOfFlowDomain, 3, i); // Lambda
+        fout << setw(DATA_WIDTH) << setprecision(DATA_DIGITS) << scientific << flame.value(IdxOfFlowDomain, 3, i); // Lambda
         for(auto k = 0; k < K; ++k)
         {
             auto yk = flame.value(IdxOfFlowDomain, 5+k, i);
@@ -343,7 +346,7 @@ void diffflame(double mdot_f, double mdot_o, double domain_length, const vector<
                 yk = 0.0;
             if(yk > 1.0)
                 yk = 1.0;
-            fout << setw(18) << setprecision(6) << scientific << yk; // Yk
+            fout << setw(DATA_WIDTH) << setprecision(DATA_DIGITS) << scientific << yk; // Yk
         }
         fout << endl;
     }
@@ -369,8 +372,7 @@ int main(int argc, char *argv[])
 
     // Load existing data
     stringstream ss;
-    ss << DATA_DIR << int(L*100) << "cm/case/";
-    ss << "mf=" << mf << "_mo=" << mo << "_L=" << L << "_raw.txt";
+    ss << DATA_DIR << "mf=" << mf << "_mo=" << mo << "_L=" << L << "_raw.txt";
     ifstream fin(ss.str());
     bool init_data_available = fin.good();
     fin.close();
@@ -410,14 +412,9 @@ int main(int argc, char *argv[])
     try 
     {
         if(init_data_available && USE_EXISTING_DATA)
-        {
-            cout << "Existing data detected!" << endl;
             diffflame(mf, mo, L, data);
-        }
         else
-        {
             diffflame(mf, mo, L);
-        }
     }
     catch (CanteraError& err) 
     {
