@@ -122,6 +122,9 @@ while(~gConverged)
     fprintf('Iter%d:\n', gIterCnt);
     F = calculate_residual_vector(0.0, phi);
     report_solution(F, phi);
+    
+    %F_cmp = importdata('res.txt');
+    %diagnose_residual(F, F_cmp);
 
     % Check convergence first
     J = calculate_jacobian(0.0, phi, F); 
@@ -385,7 +388,7 @@ function J = calculate_jacobian(rdt, phi, F)
     end
     toc
     
-    %J = J .* diag_mask; % Enforce those off tri-diagnoal blocks being 0.
+    J = J .* diag_mask; % Enforce those off tri-diagnoal blocks being 0.
 end
 
 function ret = construct_solution_vector(u, V, T, Nbla, Y)
@@ -464,28 +467,28 @@ function ret = calculate_residual_vector(rdt, phi)
     end
     
     % Filtering
-    filtered_wdot = calculate_filtered_wdot(unfiltered_wdot); % Kmol / (m^3 * s)
-    %filtered_wdot = unfiltered_wdot;
+    %filtered_wdot = calculate_filtered_wdot(unfiltered_wdot); % Kmol / (m^3 * s)
+    filtered_wdot = unfiltered_wdot;
     for i = 1:N
         RS(i) = sum(enthalpy(:, i) .* filtered_wdot(:, i)); % J / (m^3 * s)
         RR(:, i) = filtered_wdot(:, i) .* MW; % Kg / (m^3 * s)
     end
     
     % Derivatives
-    dmudz0 = df_central(mu, z);
-    dlambdadz0 = df_central(lambda, z);
-    drhodz0 = df_central(rho, z);
+    %dmudz0 = df_central(mu, z);
+    %dlambdadz0 = df_central(lambda, z);
+    %drhodz0 = df_central(rho, z);
     dVdz = df_upwind(V, z, u);
-    dVdz0 =  df_central(V, z);
+    %dVdz0 =  df_central(V, z);
     dTdz = df_upwind(T, z, u);
-    dTdz0 = df_central(T, z);
+    %dTdz0 = df_central(T, z);
     dYdz = zeros(K, N);
     dYdz0 = zeros(K, N);
-    dDdz0 = zeros(K, N);
+    %dDdz0 = zeros(K, N);
     for k = 1:K
         dYdz(k, :) = df_upwind(Y(k, :), z, u);
         dYdz0(k, :) = df_central(Y(k, :), z);
-        dDdz0(k, :) = df_central(D(k, :), z);
+        %dDdz0(k, :) = df_central(D(k, :), z);
     end
     j = zeros(K, N); % Diffusion mass flux, Kg / (m^2 * s)
     for i = 1:N
@@ -494,12 +497,14 @@ function ret = calculate_residual_vector(rdt, phi)
     end
 
     % Divergence
-    ddVddz = ddf(V, z);
-    divVisc = dmudz0 .* dVdz0 + mu .* ddVddz;
+    %ddVddz = ddf(V, z);
+    %divVisc = dmudz0 .* dVdz0 + mu .* ddVddz;
     %divVisc = df_central(mu .* dVdz0, z);
-    ddTddz = ddf(T, z);
-    divHeat = dlambdadz0 .* dTdz0 + lambda .* ddTddz;  
+    divVisc = averaged_divergence(mu, V, z);
+    %ddTddz = ddf(T, z);
+    %divHeat = dlambdadz0 .* dTdz0 + lambda .* ddTddz;  
     %divHeat = df_central(lambda .* dTdz0, z);
+    divHeat = averaged_divergence(lambda, T, z);
     ddYddz = zeros(K, N);
     for k = 1:K
         ddYddz(k, :) = ddf(Y(k, :), z);
@@ -508,6 +513,7 @@ function ret = calculate_residual_vector(rdt, phi)
     for k = 1:K
         %divDiffus(k, :) = -(drhodz0' .* D(k, :) .* dYdz0(k, :) + rho' .* dDdz0(k, :) .* dYdz0(k, :) + rho' .* D(k, :) .* ddYddz(k, :));
         divDiffus(k, :) = df_central(j(k, :), z);
+        %divDiffus(k, :) = averaged_divergence(-rho.*D(k, :)', Y(k, :), z);
     end
 
     % Residuals
@@ -579,6 +585,17 @@ end
 
 function ret = relaxation(a, b, alpha)
     ret = (1-alpha) * a + alpha * b;
+end
+
+function ret = df_forward(f, x)
+    % 1st order derivative using forward difference.
+    N = length(x);
+    ret = zeros(N, 1);
+    
+    for i = 1 : N-1
+        ret(i) = (f(i+1) - f(i))/(x(i+1)-x(i));
+    end
+    ret(N) = (f(N) - f(N-1))/(x(N)-x(N-1));
 end
 
 function ret = df_backward(f, x)
@@ -1125,5 +1142,17 @@ function ret = calculate_filtered_wdot(wdot)
         for k = 1:K
             ret(k, i) = trapz(z, gauss_weight(i, :) .* wdot(k, :)); 
         end
+    end
+end
+
+function ret = averaged_divergence(a, y, x)
+    % See Eq16 from "PREMIX: A Program for Modeling Steady Laminar, One-Dimensional Premixed Flames" 
+    N = length(x);
+    ret = zeros(N, 1);
+    
+    for j = 2:N-1
+        a1 = relaxation(a(j), a(j+1), 0.5);
+        a2 = relaxation(a(j-1), a(j), 0.5);
+        ret(j) = 2.0 / (x(j+1) - x(j-1)) * (a1*(y(j+1)-y(j))/(x(j+1)-x(j)) - a2*(y(j)-y(j-1))/(x(j)-x(j-1)));
     end
 end
