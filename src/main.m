@@ -725,6 +725,16 @@ function ret = norm2(rdt, sol, step)
     ret = sqrt(ret/U);
 end
 
+function ret = simpleZ(Yf, Yo)
+    s = 4;
+    Yo_0 = 0.232; % 空气流中氧化剂质量分数
+    Yf_0 = 1.0; % 燃料流中燃料质量分数
+    z = (s*Yf-Yo+Yo_0)/(s*Yf_0+Yo_0); % 混合分数
+    if (z < 0)
+        z = 0.0;
+    end
+end
+
 function ret = bilger(Yc, Yh, Yo)
     % Compute the mixture fraction using the Bilger formula.
     global MW_C MW_H MW_O Yc_fu Yh_fu Yo_fu Yc_ox Yh_ox Yo_ox;
