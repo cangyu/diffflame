@@ -5,6 +5,7 @@ global N K  C U z zL zR mdot_L mdot_R T_L T_R Y_L Y_R DampFactor MaxDampRound;
 global Le P gas MW NAME iCH4 iH2 iO2 iN2 iAR iH2O iCO iCO2 iNO iNO2 filtering_sigma;
 global rtol atol ss_atol ss_rtol ts_atol ts_rtol diag_mask ts_mask phi_prev gConverged;
 global MW_C MW_H MW_O MW_N Yc_fu Yh_fu Yo_fu Yc_ox Yh_ox Yo_ox gauss_weight;
+global delta_wdot hasFiltered;
 
 %% Mechanism
 gas = GRI30('Mix'); % Use the GRI 3.0 mechanism.
@@ -68,6 +69,7 @@ Yo_ox = Y_R(iO2);
 
 %% Initialize
 [N, raw_data, trans_data] = load_existing_case(mdot_f, mdot_o, L);
+%[N, raw_data, trans_data] = load_uninitialized_case(mdot_f, mdot_o, L);
 U = C*N; % Total num of unknowns
 zL = raw_data(1, 1); % Position of left endpoint, m
 zR = raw_data(N, 1); % Position of right endpoint, m
@@ -111,6 +113,7 @@ end
 ts_mask = transient_jacobian_mask();
 diag_mask = full(blktridiag(ones(C), ones(C), ones(C), N));
 phi_prev = construct_solution_vector(u0, V0, T0, Nbla0, Y0); 
+delta_wdot = zeros(K, N);
 
 %% Solve 
 gConverged = false;
@@ -120,11 +123,9 @@ phi = phi_prev; % Solution vector
 while(~gConverged)
     gIterCnt = gIterCnt + 1;
     fprintf('Iter%d:\n', gIterCnt);
+    hasFiltered = false;
     F = calculate_residual_vector(0.0, phi);
     report_solution(F, phi);
-    
-    %F_cmp = importdata('res.txt');
-    %diagnose_residual(F, F_cmp);
 
     % Check convergence first
     J = calculate_jacobian(0.0, phi, F); 
@@ -437,7 +438,7 @@ function [u, V, T, Nbla, Y] = mapback_solution_vector(phi)
 end
 
 function ret = calculate_residual_vector(rdt, phi)
-    global N K P U gas MW z mdot_L mdot_R T_L T_R Y_L Y_R phi_prev;
+    global N K P U gas MW z mdot_L mdot_R T_L T_R Y_L Y_R phi_prev hasFiltered delta_wdot;
     
     [~, V_prev, T_prev, ~, Y_prev] = mapback_solution_vector(phi_prev);
     [u, V, T, Nbla, Y] = mapback_solution_vector(phi);
@@ -467,28 +468,26 @@ function ret = calculate_residual_vector(rdt, phi)
     end
     
     % Filtering
-    %filtered_wdot = calculate_filtered_wdot(unfiltered_wdot); % Kmol / (m^3 * s)
-    filtered_wdot = unfiltered_wdot;
+    if ~hasFiltered
+        filtered_wdot = calculate_filtered_wdot(unfiltered_wdot); % Kmol / (m^3 * s)
+        delta_wdot = filtered_wdot - unfiltered_wdot;
+        hasFiltered = true;
+    end    
+    filtered_wdot = unfiltered_wdot + delta_wdot;
+    
     for i = 1:N
         RS(i) = sum(enthalpy(:, i) .* filtered_wdot(:, i)); % J / (m^3 * s)
         RR(:, i) = filtered_wdot(:, i) .* MW; % Kg / (m^3 * s)
     end
     
     % Derivatives
-    %dmudz0 = df_central(mu, z);
-    %dlambdadz0 = df_central(lambda, z);
-    %drhodz0 = df_central(rho, z);
     dVdz = df_upwind(V, z, u);
-    %dVdz0 =  df_central(V, z);
     dTdz = df_upwind(T, z, u);
-    %dTdz0 = df_central(T, z);
     dYdz = zeros(K, N);
     dYdz0 = zeros(K, N);
-    %dDdz0 = zeros(K, N);
     for k = 1:K
         dYdz(k, :) = df_upwind(Y(k, :), z, u);
         dYdz0(k, :) = df_central(Y(k, :), z);
-        %dDdz0(k, :) = df_central(D(k, :), z);
     end
     j = zeros(K, N); % Diffusion mass flux, Kg / (m^2 * s)
     for i = 1:N
@@ -497,23 +496,11 @@ function ret = calculate_residual_vector(rdt, phi)
     end
 
     % Divergence
-    %ddVddz = ddf(V, z);
-    %divVisc = dmudz0 .* dVdz0 + mu .* ddVddz;
-    %divVisc = df_central(mu .* dVdz0, z);
     divVisc = averaged_divergence(mu, V, z);
-    %ddTddz = ddf(T, z);
-    %divHeat = dlambdadz0 .* dTdz0 + lambda .* ddTddz;  
-    %divHeat = df_central(lambda .* dTdz0, z);
     divHeat = averaged_divergence(lambda, T, z);
-    ddYddz = zeros(K, N);
-    for k = 1:K
-        ddYddz(k, :) = ddf(Y(k, :), z);
-    end
     divDiffus = zeros(K, N);
     for k = 1:K
-        %divDiffus(k, :) = -(drhodz0' .* D(k, :) .* dYdz0(k, :) + rho' .* dDdz0(k, :) .* dYdz0(k, :) + rho' .* D(k, :) .* ddYddz(k, :));
         divDiffus(k, :) = df_central(j(k, :), z);
-        %divDiffus(k, :) = averaged_divergence(-rho.*D(k, :)', Y(k, :), z);
     end
 
     % Residuals
@@ -546,7 +533,9 @@ function ret = calculate_residual_vector(rdt, phi)
         elseif i == N
             ret(cnt) = T(i) - T_R; % B.C. of T at right.
         else
-            ret(cnt) = rho(i)*Cp(i)*u(i)*dTdz(i)-divHeat(i)+RS(i)+dot(j(:, i),Cp_R(:, i))*dTdz(i);
+            %loc_j = 0.25*j(:, i-1) + 0.5*j(:, i) + 0.25*j(:, i+1);
+            loc_j = j(:, i);
+            ret(cnt) = rho(i)*Cp(i)*u(i)*dTdz(i)-divHeat(i)+RS(i)+dot(loc_j,Cp_R(:, i))*dTdz(i);
             ret(cnt) = ret(cnt) / (rho(i)*Cp(i));
             ret(cnt) = ret(cnt) + rdt*(T(i)-T_prev(i)); % Add transient term.
         end
@@ -683,6 +672,51 @@ function [lines, raw_data, trans_data] = load_existing_case(mf, mo, domain_len)
     lines = a(1);
 end
 
+function [lines, raw_data, trans_data] = load_uninitialized_case(mf, mo, domain_len)
+    global K;
+
+    case_str = sprintf('../data/mf=%g_mo=%g_L=%g', mf, mo, domain_len);
+    raw_data_path = sprintf('%s_raw.txt', case_str);
+    trans_data_path = sprintf('%s_transformed.txt', case_str);
+    
+    raw_tbl = importdata(raw_data_path);
+    raw_data = raw_tbl.data;
+    
+    trans_tbl = importdata(trans_data_path);
+    trans_data = trans_tbl.data;
+    
+    a = size(raw_data);
+    b = size(trans_data);
+    if  a(1) ~= b(1)
+        error('Inconsistent input data!');
+    end
+    lines = a(1);
+    
+    uL = raw_data(1, 2);
+    uR = raw_data(lines, 2);
+    strain_rate = (uR - uL)/domain_len;
+    
+    for i = 2:lines-1
+        loc_ratio = (raw_data(i, 1) - raw_data(1, 1))/domain_len;
+        raw_data(i, 2) = relaxation(uL, uR, loc_ratio); % u
+        raw_data(i, 4) = 2500.0; % T = 2500
+        for k = 1:K
+            yL = raw_data(1, 5+k);
+            yR = raw_data(lines, 5+k);
+            raw_data(i, 5+k) = relaxation(yL, yR, loc_ratio); % Linear distribution of Y_k
+        end
+    end
+    
+    for i = 2:lines-1
+        trans_data(i, 1) = local_rho(raw_data(i, 4), raw_data(i, 6:5+K)'); % rho
+    end
+    
+    drhodz = df_central(trans_data(:, 1), raw_data(:, 1));
+    for i = 2:lines-1
+        raw_data(i, 3) = -0.5*(strain_rate + raw_data(i, 2)/trans_data(i, 1)*drhodz(i)); % V
+    end
+end
+
 function ret = norm1(res_vec)
     ret = norm(res_vec, inf);
 end
@@ -758,14 +792,24 @@ function ret = calculate_mixture_fraction(sol_vec)
     end
 end
 
+function ret = local_rho(T, Y)
+    global MW P K;
+    
+    tmp = 0.0;
+    for k = 1:K
+        tmp = tmp + Y(k) / MW(k);
+    end
+
+    ret = P / (gasconstant * T * tmp);
+end
+
 function ret = calculate_density(sol_vec)
-    global MW N P;
+    global N;
     
     ret = zeros(N, 1);
     [~, ~, T, ~, Y] = mapback_solution_vector(sol_vec);
-    
     for i = 1:N
-        ret(i) = P / (gasconstant * T(i) * sum(Y(:, i) ./ MW));
+        ret(i) = local_rho(T(i), Y(:, i));
     end
 end
 
