@@ -16,7 +16,7 @@ using namespace Cantera;
 using namespace std;
 
 const string DATA_DIR = "../data/";
-const bool USE_EXISTING_DATA = false;
+const bool USE_EXISTING_DATA = true;
 const size_t INITIAL_PNT_NUM = 11;
 const size_t DATA_WIDTH = 32;
 const size_t DATA_DIGITS = 18;
