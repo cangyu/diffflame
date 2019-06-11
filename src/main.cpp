@@ -91,7 +91,7 @@ void diffflame(double mdot_f, double mdot_o, double domain_length)
     try {
         gas.equilibrate("HP");
     } catch (CanteraError& err) {
-        cout << err.what() << std::endl;
+        cout << err.what() << endl;
     }
     const auto Tad = gas.temperature();
     cout << "Tad = " << Tad << "K" << endl;
@@ -241,7 +241,7 @@ void diffflame(double mdot_f, double mdot_o, double domain_length, const vector<
     try {
         gas.equilibrate("HP");
     } catch (CanteraError& err) {
-        cout << err.what() << std::endl;
+        cout << err.what() << endl;
     }
     const auto Tad = gas.temperature();
     cout << "Tad = " << Tad << "K" << endl;
@@ -409,15 +409,13 @@ int main(int argc, char *argv[])
     }
     
     // Solve
-    try 
-    {
+    try {
         if(init_data_available && USE_EXISTING_DATA)
             diffflame(mf, mo, L, data);
         else
             diffflame(mf, mo, L);
     }
-    catch (CanteraError& err) 
-    {
+    catch (CanteraError& err) {
         cout << err.what() << endl;
     }
     return 0;
