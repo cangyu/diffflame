@@ -110,7 +110,7 @@ void diffflame(double mdot_f, double mdot_o, double domain_length)
     const double rho_o = calc_density(P, T_o, Y_o.data(), MW.data(), K);
     const double u_o = -mdot_o / rho_o;
 
-    vector_fp locs{0, 0.0, 1.0};
+    vector_fp locs{0, 0.5, 1.0};
     vector_fp values{T_f, Tad, T_o};
     flame.setInitialGuess("T", locs, values);
 
